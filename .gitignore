@@ -180,6 +180,17 @@ mem_firebase_license_manager/
 firebase.json
 .firebase/
 .firebaserc
+**/serviceAccountKey.json
+**/firebase-adminsdk-*.json
+**/*-firebase-adminsdk-*.json
+
+# Exclude any credential files
+**/*.env
+**/*.env.*
+**/credentials.json
+**/service-account-*.json
+**/*-key.json
+**/*-credentials.json
 
 # Exclude large test files and temp files
 *.tmp
