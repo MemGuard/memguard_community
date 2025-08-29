@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MemGuard - Open Source Memory Leak Detection Setup
+MemGuard Open Source Setup Configuration
 """
 
 from setuptools import setup, find_packages
@@ -12,7 +12,7 @@ def read_readme():
     if os.path.exists(readme_path):
         with open(readme_path, 'r', encoding='utf-8') as f:
             return f.read()
-    return "MemGuard - Open Source Memory Leak Detection and Prevention System"
+    return "MemGuard - Open Source Memory Leak Detection and Auto-Cleanup"
 
 # Read requirements
 def read_requirements():
@@ -36,9 +36,8 @@ setup(
     name='memguard',
     version=get_version(),
     author='Kyle Clouthier',
-    author_email='kyle@clouthier.dev',
-    description='Production Memory Leak Detection and Prevention System - Open Source',
-    license='MIT',
+    author_email='kyle@example.com',
+    description='Open Source Memory Leak Detection and Auto-Cleanup for Python Applications',
     long_description=read_readme(),
     long_description_content_type='text/markdown',
     url='https://github.com/MemGuard/memguard_community',
@@ -46,7 +45,6 @@ setup(
         'Bug Reports': 'https://github.com/MemGuard/memguard_community/issues',
         'Source': 'https://github.com/MemGuard/memguard_community',
         'Documentation': 'https://github.com/MemGuard/memguard_community/wiki',
-        'Discussions': 'https://github.com/MemGuard/memguard_community/discussions',
     },
     packages=find_packages(exclude=['tests*', 'docs*', 'examples*']),
     classifiers=[

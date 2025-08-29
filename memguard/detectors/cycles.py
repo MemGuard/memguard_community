@@ -16,8 +16,8 @@
 # Dependencies: gc, weakref, threading, report
 # SHA-256     : [PLACEHOLDER - Updated by CI/CD]
 # Testing     : 100% coverage, all tests passing
-# License     : Proprietary - Patent Pending
-# Copyright   : � 2025 Kyle Clouthier (Canada). All rights reserved.
+# License     : MIT License
+# Copyright   : © 2025 Kyle Clouthier. All rights reserved.
 #=============================================================================
 
 from __future__ import annotations

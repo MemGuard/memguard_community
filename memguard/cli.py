@@ -2,7 +2,7 @@
 """
 MemGuard CLI Interface
 
-Command-line interface for MemGuard Pro memory leak detection.
+Command-line interface for MemGuard memory leak detection - Open Source Edition.
 """
 
 import argparse
@@ -19,7 +19,7 @@ def create_parser():
     """Create the argument parser for MemGuard CLI."""
     parser = argparse.ArgumentParser(
         prog='memguard',
-        description='MemGuard Pro - Advanced Memory Leak Detection and Auto-Cleanup',
+        description='MemGuard - Open Source Memory Leak Detection and Auto-Cleanup',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -27,11 +27,6 @@ Examples:
   memguard analyze --output report.json
   memguard stop
   memguard status
-  
-Upgrade to Pro:
-  memguard upgrade --pro
-  memguard start --license YOUR-LICENSE-KEY --auto-cleanup
-  memguard analyze --cost-analysis
         """
     )
     
@@ -55,10 +50,8 @@ Upgrade to Pro:
                              help='Leak patterns to detect')
     start_parser.add_argument('--poll-interval', type=float, default=30.0,
                              help='Polling interval in seconds (default: 30)')
-    start_parser.add_argument('--license', '-l', type=str,
-                             help='Pro license key for advanced features')
     start_parser.add_argument('--auto-cleanup', action='store_true',
-                             help='Enable auto-cleanup (requires Pro license)')
+                             help='Enable auto-cleanup')
     start_parser.add_argument('--aggressive', action='store_true',
                              help='Enable aggressive detection mode')
     start_parser.add_argument('--background', action='store_true', default=True,
@@ -81,13 +74,6 @@ Upgrade to Pro:
     status_parser.add_argument('--json', action='store_true',
                               help='Output in JSON format')
     
-    # Upgrade command
-    upgrade_parser = subparsers.add_parser('upgrade', help='Upgrade MemGuard')
-    upgrade_parser.add_argument('--pro', action='store_true',
-                               help='Upgrade to Pro version with Firebase licensing')
-    upgrade_parser.add_argument('--check', action='store_true',
-                               help='Check for available upgrades')
-    
     return parser
 
 
@@ -103,43 +89,43 @@ def format_report_text(report):
     health_status = getattr(report, 'health_status', 'Unknown')
     health_grade = getattr(report, 'health_grade', 'A')
     
-    lines.append(f"🏥 Memory Health Score: {health_score}/100 ({health_grade}) - {health_status}")
+    lines.append(f"Memory Health Score: {health_score}/100 ({health_grade}) - {health_status}")
     
     # Cost analysis (always available now)
     if hasattr(report, 'estimated_monthly_cost_usd') and report.estimated_monthly_cost_usd > 0:
-        lines.append(f"💰 Monthly Waste: ${report.estimated_monthly_cost_usd:.2f}")
+        lines.append(f"Monthly Waste: ${report.estimated_monthly_cost_usd:.2f}")
     
     # Basic info
     if hasattr(report, 'scan_duration_ms'):
-        lines.append(f"⚡ Scan Duration: {report.scan_duration_ms:.1f} ms")
+        lines.append(f"Scan Duration: {report.scan_duration_ms:.1f} ms")
     if hasattr(report, 'memory_current_mb'):
-        lines.append(f"💾 Current Memory: {report.memory_current_mb:.1f} MB")
+        lines.append(f"Current Memory: {report.memory_current_mb:.1f} MB")
     
     lines.append("")
     
     # Findings with prevention tips
-    lines.append(f"🔍 Findings: {len(report.findings)}")
+    lines.append(f"Findings: {len(report.findings)}")
     lines.append("-" * 20)
     
     if not report.findings:
-        lines.append("✅ No memory leaks detected - Great job!")
+        lines.append("No memory leaks detected - Great job!")
     else:
         for i, finding in enumerate(report.findings, 1):
-            # Severity emoji
-            severity_emoji = {
-                'low': '🟡',
-                'medium': '🟠', 
-                'high': '🔴',
-                'critical': '🚨'
-            }.get(finding.severity.value, '⚪')
+            # Severity indicators
+            severity_indicator = {
+                'low': 'LOW',
+                'medium': 'MED', 
+                'high': 'HIGH',
+                'critical': 'CRIT'
+            }.get(finding.severity.value, 'UNK')
             
-            lines.append(f"{i}. {severity_emoji} {finding.pattern.upper()}: {finding.detail}")
-            lines.append(f"   📍 Location: {finding.location}")
-            lines.append(f"   📊 Severity: {finding.severity.value.title()}")
-            lines.append(f"   🎯 Confidence: {finding.confidence:.0%}")
+            lines.append(f"{i}. [{severity_indicator}] {finding.pattern.upper()}: {finding.detail}")
+            lines.append(f"   Location: {finding.location}")
+            lines.append(f"   Severity: {finding.severity.value.title()}")
+            lines.append(f"   Confidence: {finding.confidence:.0%}")
             
             if hasattr(finding, 'size_mb') and finding.size_mb:
-                lines.append(f"   📏 Size: {finding.size_mb:.2f} MB")
+                lines.append(f"   Size: {finding.size_mb:.2f} MB")
             
             # Prevention tip
             if hasattr(report, 'get_prevention_tip'):
@@ -147,22 +133,6 @@ def format_report_text(report):
                 lines.append(f"   {tip}")
             
             lines.append("")
-    
-    # Pro upgrade prompt (contextual)
-    if hasattr(report, 'should_suggest_pro_upgrade') and report.should_suggest_pro_upgrade():
-        lines.append("🆙 " + "=" * 58)
-        upgrade_msg = report.get_pro_upgrade_message()
-        lines.append(upgrade_msg)
-        lines.append("=" * 60)
-        lines.append("")
-    
-    # License info
-    if hasattr(report, 'license_type'):
-        license_emoji = "✨" if report.license_type == 'PRO' else "🆓"
-        lines.append(f"{license_emoji} License: {report.license_type}")
-        
-    if hasattr(report, 'pro_features_enabled') and report.pro_features_enabled:
-        lines.append(f"🚀 Pro Features: {', '.join(report.pro_features_enabled)}")
     
     return "\n".join(lines)
 
@@ -174,25 +144,25 @@ def format_status_text(status):
     lines.append("=" * 26)
     
     # Core protection status
-    protection_emoji = "🛡️" if status.get('is_protecting') else "⏹️"
-    lines.append(f"{protection_emoji} Protection: {'ACTIVE' if status.get('is_protecting') else 'STOPPED'}")
+    protection_status = "ACTIVE" if status.get('is_protecting') else "STOPPED"
+    lines.append(f"Protection: {protection_status}")
     
     # CRITICAL: Overhead visibility for customer self-verification
     if 'performance_stats' in status:
         perf = status['performance_stats']
         overhead_pct = perf.get('overhead_percentage', 0.0)
         
-        # Color coding for overhead (production thresholds)
+        # Status indicator for overhead (production thresholds)
         if overhead_pct < 3.0:
-            overhead_emoji = "✅"  # Excellent
+            overhead_status = "EXCELLENT"
         elif overhead_pct < 5.0:
-            overhead_emoji = "🟡"  # Acceptable
+            overhead_status = "ACCEPTABLE"
         elif overhead_pct < 10.0:
-            overhead_emoji = "🟠"  # Warning
+            overhead_status = "WARNING"
         else:
-            overhead_emoji = "🔴"  # Critical
+            overhead_status = "CRITICAL"
             
-        lines.append(f"{overhead_emoji} Overhead: {overhead_pct:.2f}% (scan: {perf.get('avg_scan_duration_ms', 0):.1f}ms)")
+        lines.append(f"Overhead: {overhead_pct:.2f}% ({overhead_status}) - scan: {perf.get('avg_scan_duration_ms', 0):.1f}ms")
         
         # Memory tracking
         memory_current = perf.get('memory_current_mb', 0.0)
@@ -200,21 +170,21 @@ def format_status_text(status):
         memory_growth = perf.get('memory_growth_mb', 0.0)
         
         if memory_growth > 0:
-            lines.append(f"📈 Memory: {memory_current:.1f}MB (+{memory_growth:.1f}MB from baseline)")
+            lines.append(f"Memory: {memory_current:.1f}MB (+{memory_growth:.1f}MB from baseline)")
         else:
-            lines.append(f"💾 Memory: {memory_current:.1f}MB (stable)")
+            lines.append(f"Memory: {memory_current:.1f}MB (stable)")
             
         # Scan performance
         total_scans = perf.get('total_scans', 0)
         scan_freq = perf.get('scan_frequency_hz', 0.0)
-        lines.append(f"🔍 Scans: {total_scans} total @ {scan_freq:.1f}Hz")
+        lines.append(f"Scans: {total_scans} total @ {scan_freq:.1f}Hz")
         
         # Findings summary
         total_findings = perf.get('total_findings', 0)
         if total_findings > 0:
-            lines.append(f"⚠️  Findings: {total_findings} issues detected")
+            lines.append(f"Findings: {total_findings} issues detected")
         else:
-            lines.append("✅ Findings: No issues detected")
+            lines.append("Findings: No issues detected")
     
     lines.append("")
     
@@ -228,36 +198,36 @@ def format_status_text(status):
         else:
             uptime_days = uptime_hours / 24
             uptime_str = f"{uptime_days:.1f}d"
-        lines.append(f"⏰ Uptime: {uptime_str}")
+        lines.append(f"Uptime: {uptime_str}")
     
     # Component status with versions (observability)
     if 'guards' in status and status['guards']:
-        lines.append("🔧 Guards:")
+        lines.append("Guards:")
         for pattern_name, guard_info in status['guards'].items():
-            status_emoji = "✅" if guard_info.get('active') else "⏹️"
+            status_indicator = "ACTIVE" if guard_info.get('active') else "STOPPED"
             version = guard_info.get('version', '1.0.0')
             guard_status = guard_info.get('status', 'unknown')
-            lines.append(f"   {status_emoji} {pattern_name} v{version} ({guard_status})")
+            lines.append(f"   {pattern_name} v{version} ({status_indicator} - {guard_status})")
     
     if 'detectors' in status and status['detectors']:
-        lines.append("🕵️ Detectors:")
+        lines.append("Detectors:")
         for pattern_name, detector_info in status['detectors'].items():
-            status_emoji = "✅" if detector_info.get('active') else "⏹️"
+            status_indicator = "ACTIVE" if detector_info.get('active') else "STOPPED"
             version = detector_info.get('version', '1.0.0')
             detector_status = detector_info.get('status', 'unknown')
-            lines.append(f"   {status_emoji} {pattern_name} v{version} ({detector_status})")
+            lines.append(f"   {pattern_name} v{version} ({status_indicator} - {detector_status})")
     
     # Environment info for troubleshooting
     if 'environment' in status:
         env = status['environment']
         lines.append("")
-        lines.append(f"🖥️  Environment: {env.get('platform', 'unknown')}")
-        lines.append(f"🐍 Python: {env.get('python_version', 'unknown')}")
-        lines.append(f"📍 Process: {env.get('process_name', 'unknown')}")
+        lines.append(f"Environment: {env.get('platform', 'unknown')}")
+        lines.append(f"Python: {env.get('python_version', 'unknown')}")
+        lines.append(f"Process: {env.get('process_name', 'unknown')}")
     
     # Schema version for compatibility
     if 'schema_version' in status:
-        lines.append(f"📋 Status API: v{status['schema_version']}")
+        lines.append(f"Status API: v{status['schema_version']}")
     
     return "\n".join(lines)
 
@@ -273,41 +243,24 @@ def cmd_start(args):
             'background': args.background,
         }
         
-        if args.license:
-            if not check_pro_features_available():
-                print("⚠️  License key provided but Pro features not installed")
-                suggest_pro_upgrade()
-                return 1
-            kwargs['license_key'] = args.license
-        
         if args.auto_cleanup:
-            if not check_pro_features_available():
-                print("⚠️  Auto-cleanup requires Pro features")
-                suggest_pro_upgrade()
-                return 1
             kwargs['auto_cleanup'] = {pattern: True for pattern in args.patterns}
         
         if args.aggressive:
-            if not check_pro_features_available():
-                print("⚠️  Aggressive mode requires Pro features")
-                suggest_pro_upgrade()
-                return 1
             kwargs['aggressive_mode'] = True
         
         protect(**kwargs)
         
-        print(f"✅ MemGuard started successfully")
+        print(f"MemGuard started successfully")
         print(f"   Threshold: {args.threshold} MB")
         print(f"   Sample Rate: {args.sample_rate}")
         print(f"   Patterns: {', '.join(args.patterns)}")
         
-        if args.license:
-            print(f"   License: Pro")
         if args.auto_cleanup:
             print(f"   Auto-cleanup: Enabled")
         
     except Exception as e:
-        print(f"❌ Failed to start MemGuard: {e}")
+        print(f"Failed to start MemGuard: {e}")
         return 1
     
     return 0
@@ -317,9 +270,9 @@ def cmd_stop(args):
     """Handle stop command."""
     try:
         stop()
-        print("✅ MemGuard stopped successfully")
+        print("MemGuard stopped successfully")
     except Exception as e:
-        print(f"❌ Failed to stop MemGuard: {e}")
+        print(f"Failed to stop MemGuard: {e}")
         return 1
     
     return 0
@@ -349,13 +302,9 @@ def cmd_analyze(args):
                 'memory_current_mb': getattr(report, 'memory_current_mb', 0),
             }
             
-            # Add Pro features if available
-            if hasattr(report, 'license_type'):
-                report_dict['license_type'] = report.license_type
+            # Add available features
             if hasattr(report, 'estimated_monthly_cost_usd'):
                 report_dict['estimated_monthly_cost_usd'] = report.estimated_monthly_cost_usd
-            if hasattr(report, 'pro_features_enabled'):
-                report_dict['pro_features_enabled'] = report.pro_features_enabled
             
             output = json.dumps(report_dict, indent=2)
         else:
@@ -364,12 +313,12 @@ def cmd_analyze(args):
         if args.output:
             with open(args.output, 'w') as f:
                 f.write(output)
-            print(f"✅ Report saved to {args.output}")
+            print(f"Report saved to {args.output}")
         else:
             print(output)
         
     except Exception as e:
-        print(f"❌ Failed to analyze: {e}")
+        print(f"Failed to analyze: {e}")
         return 1
     
     return 0
@@ -386,82 +335,8 @@ def cmd_status(args):
             print(format_status_text(status))
         
     except Exception as e:
-        print(f"❌ Failed to get status: {e}")
+        print(f"Failed to get status: {e}")
         return 1
-    
-    return 0
-
-
-def cmd_upgrade(args):
-    """Handle upgrade command."""
-    if args.check:
-        print("🔍 Checking for available upgrades...")
-        
-        # Check if Pro dependencies are available
-        try:
-            import firebase_admin
-            print("✅ Pro features already available")
-            return 0
-        except ImportError:
-            print("📦 Pro upgrade available:")
-            print("   - Advanced detection algorithms")
-            print("   - Auto-cleanup functionality (saves $$$ automatically)")
-            print("   - Custom patterns & detection rules")
-            print("   - Enterprise reporting")
-            print("   - Strategic insights & architectural analysis")
-            print("   - Priority support")
-            print("\n💡 Run 'memguard upgrade --pro' to upgrade")
-            return 0
-    
-    if args.pro:
-        print("🚀 Upgrading to MemGuard Pro...")
-        
-        try:
-            # Install Pro dependencies
-            print("📦 Installing Pro dependencies...")
-            result = subprocess.run([
-                sys.executable, '-m', 'pip', 'install', 'memguard[pro]'
-            ], capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                print("✅ Pro upgrade completed successfully!")
-                print("\n🎉 Pro features now available:")
-                print("   ✅ Advanced detection algorithms")
-                print("   ✅ Auto-cleanup functionality (saves $$$ automatically)")
-                print("   ✅ Custom patterns & detection rules")
-                print("   ✅ Enterprise reporting")
-                print("   ✅ Strategic insights & architectural analysis")
-                print("   ✅ Priority support")
-                
-                print("\n💡 Next steps:")
-                print("   1. Get your Pro subscription: https://memguard.net/")
-                print("   2. Start with Pro features:")
-                print("      memguard start --license YOUR-LICENSE-KEY --auto-cleanup")
-                
-                # Test Pro import
-                try:
-                    import firebase_admin
-                    print("   ✅ Pro dependencies verified")
-                except ImportError:
-                    print("   ⚠️  Pro dependencies may need manual installation")
-                
-            else:
-                print(f"❌ Upgrade failed: {result.stderr}")
-                print("\n💡 Manual upgrade:")
-                print("   pip install memguard[pro]")
-                return 1
-                
-        except Exception as e:
-            print(f"❌ Upgrade failed: {e}")
-            print("\n💡 Manual upgrade:")
-            print("   pip install memguard[pro]")
-            return 1
-    
-    else:
-        print("💡 Available upgrade options:")
-        print("   --pro     Upgrade to Pro version")
-        print("   --check   Check for available upgrades")
-        print("\nExample: memguard upgrade --pro")
     
     return 0
 
@@ -481,32 +356,14 @@ def main():
         'stop': cmd_stop,
         'analyze': cmd_analyze,
         'status': cmd_status,
-        'upgrade': cmd_upgrade,
     }
     
     handler = handlers.get(args.command)
     if handler:
         return handler(args)
     else:
-        print(f"❌ Unknown command: {args.command}")
+        print(f"Unknown command: {args.command}")
         return 1
-
-
-def check_pro_features_available():
-    """Check if Pro features are available."""
-    try:
-        import firebase_admin
-        return True
-    except ImportError:
-        return False
-
-
-def suggest_pro_upgrade():
-    """Suggest Pro upgrade if features are used without Pro license."""
-    print("\n💡 This feature requires MemGuard Pro")
-    print("   Upgrade with: memguard upgrade --pro")
-    print("   Or install manually: pip install memguard[pro]")
-    print("   Get your subscription: https://memguard.net/")
 
 
 if __name__ == '__main__':

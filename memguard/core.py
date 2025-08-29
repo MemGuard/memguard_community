@@ -16,8 +16,8 @@
 # Dependencies: config, sampling, report, guards, detectors
 # SHA-256     : [PLACEHOLDER - Updated by CI/CD]
 # Testing     : 100% coverage, all tests passing
-# License     : Proprietary - Patent Pending
-# Copyright   : © 2025 Kyle Clouthier. Released under MIT License.
+# License     : MIT License
+# Copyright   : © 2025 Kyle Clouthier. All rights reserved.
 #=============================================================================
 
 from __future__ import annotations
@@ -66,13 +66,13 @@ from .detectors.caches import (
 
 # Configure safe logging defaults
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.INFO)  # Enable info logging for core module
+_logger.setLevel(logging.WARNING)  # Only WARN/ERROR by default
 
-# Add console handler for debug output
+# Add console handler only if none exists
 if not _logger.handlers and not logging.getLogger().handlers:
     _console_handler = logging.StreamHandler()
-    _console_handler.setLevel(logging.INFO)
-    _formatter = logging.Formatter('[MemGuard-Core] %(levelname)s: %(message)s')
+    _console_handler.setLevel(logging.WARNING)
+    _formatter = logging.Formatter('[MemGuard] %(levelname)s: %(message)s')
     _console_handler.setFormatter(_formatter)
     _logger.addHandler(_console_handler)
 
@@ -87,21 +87,12 @@ _memguard_state = {
     'scan_count': 0,
     'protection_lock': threading.RLock(),
     'background_scanner': None,
-    'background_stop_event': threading.Event(),
-    'monitoring_mode': 'hybrid',  # 'light', 'deep', or 'hybrid'
-    'next_scheduled_deep_scan': 0.0,
-    'deep_scan_scheduler': None,
-    'deep_scan_stop_event': threading.Event()
+    'background_stop_event': threading.Event()
 }
 
 # Scheduled cleanup queue (CRITICAL FIX for race conditions)
 _scheduled_cleanups = []
 _cleanup_lock = threading.Lock()
-
-# Custom scheduling system for intensive cleanup
-_scheduled_deep_cleanups = []
-_deep_cleanup_lock = threading.Lock()
-_next_deep_cleanup_time = 0.0
 
 def _schedule_guard_cleanup(guard_type: str, max_age_s: float) -> None:
     """Schedule guard cleanup for next scan cycle to prevent race conditions."""
@@ -112,155 +103,39 @@ def _schedule_guard_cleanup(guard_type: str, max_age_s: float) -> None:
             'scheduled_at': time.time()
         })
 
-def _schedule_intensive_cleanup(cleanup_type: str, scheduled_time: float, max_age_s: float = 300.0) -> None:
-    """Schedule intensive cleanup at specific time with custom overhead control."""
-    with _deep_cleanup_lock:
-        _scheduled_deep_cleanups.append({
-            'cleanup_type': cleanup_type,
-            'scheduled_time': scheduled_time,
-            'max_age_s': max_age_s,
-            'created_at': time.time()
-        })
-        global _next_deep_cleanup_time
-        if not _next_deep_cleanup_time or scheduled_time < _next_deep_cleanup_time:
-            _next_deep_cleanup_time = scheduled_time
-            _logger.info(f"Scheduled intensive {cleanup_type} cleanup for {scheduled_time - time.time():.1f}s from now")
-
-def _schedule_cache_cleanup(max_age_s: float) -> None:
-    """Schedule cache cleanup for next scan cycle."""
-    with _cleanup_lock:
-        _scheduled_cleanups.append({
-            'guard_type': 'cache',
-            'max_age_s': max_age_s,
-            'scheduled_at': time.time()
-        })
-
-
 def _execute_scheduled_cleanups() -> None:
     """Execute all scheduled cleanups safely after scan completion."""
-    _logger.debug(f"_execute_scheduled_cleanups: Starting with {len(_scheduled_cleanups)} scheduled cleanups")
-    
     if not _scheduled_cleanups:
-        _logger.debug("_execute_scheduled_cleanups: No cleanups scheduled")
         return
         
     with _cleanup_lock:
         cleanups_to_run = _scheduled_cleanups.copy()
         _scheduled_cleanups.clear()
-        
-    _logger.info(f"_execute_scheduled_cleanups: Executing {len(cleanups_to_run)} scheduled cleanups")
-
-def _execute_intensive_cleanups() -> None:
-    """Execute intensive cleanups that were scheduled for current time."""
-    current_time = time.time()
-    global _next_deep_cleanup_time
-    
-    with _deep_cleanup_lock:
-        due_cleanups = [c for c in _scheduled_deep_cleanups if c['scheduled_time'] <= current_time]
-        _scheduled_deep_cleanups[:] = [c for c in _scheduled_deep_cleanups if c['scheduled_time'] > current_time]
-        
-        # Update next cleanup time
-        _next_deep_cleanup_time = min([c['scheduled_time'] for c in _scheduled_deep_cleanups], default=0.0)
-    
-    if not due_cleanups:
-        return
-    
-    _logger.info(f"Executing {len(due_cleanups)} intensive cleanups")
-    
-    for cleanup in due_cleanups:
-        try:
-            cleanup_type = cleanup['cleanup_type']
-            max_age_s = cleanup['max_age_s']
-            
-            _logger.info(f"Starting intensive {cleanup_type} cleanup (overhead expected)")
-            start_time = time.perf_counter()
-            
-            if cleanup_type == 'comprehensive':
-                _execute_comprehensive_cleanup(max_age_s)
-            elif cleanup_type == 'files':
-                _execute_file_intensive_cleanup(max_age_s)
-            elif cleanup_type == 'sockets':
-                _execute_socket_intensive_cleanup(max_age_s)
-            elif cleanup_type == 'memory':
-                _execute_memory_intensive_cleanup(max_age_s)
-            
-            duration = (time.perf_counter() - start_time) * 1000
-            _logger.info(f"Completed intensive {cleanup_type} cleanup in {duration:.1f}ms")
-            
-        except Exception as e:
-            _logger.error(f"Error in intensive cleanup {cleanup_type}: {e}")
-
-def _execute_comprehensive_cleanup(max_age_s: float) -> None:
-    """Execute comprehensive cleanup of all resource types."""
-    from .guards.file_guard import force_cleanup_files
-    from .guards.socket_guard import force_cleanup_sockets
-    from .guards.asyncio_guard import force_cleanup_asyncio
-    from .guards.event_guard import force_cleanup_listeners
-    
-    total_cleaned = 0
-    total_cleaned += force_cleanup_files(max_age_s=max_age_s)
-    total_cleaned += force_cleanup_sockets(max_age_s=max_age_s)
-    task_count, timer_count = force_cleanup_asyncio(max_age_s=max_age_s)
-    total_cleaned += task_count + timer_count
-    total_cleaned += force_cleanup_listeners(max_age_s=max_age_s)
-    
-    _logger.info(f"Comprehensive cleanup completed: {total_cleaned} resources cleaned")
-
-def _execute_file_intensive_cleanup(max_age_s: float) -> None:
-    """Execute intensive file handle cleanup."""
-    from .guards.file_guard import force_cleanup_files
-    cleaned = force_cleanup_files(max_age_s=max_age_s)
-    _logger.info(f"File intensive cleanup completed: {cleaned} files cleaned")
-
-def _execute_socket_intensive_cleanup(max_age_s: float) -> None:
-    """Execute intensive socket cleanup."""
-    from .guards.socket_guard import force_cleanup_sockets
-    cleaned = force_cleanup_sockets(max_age_s=max_age_s)
-    _logger.info(f"Socket intensive cleanup completed: {cleaned} sockets cleaned")
-
-def _execute_memory_intensive_cleanup(max_age_s: float) -> None:
-    """Execute intensive memory cleanup including caches and cycles."""
-    try:
-        from .detectors.caches import force_cleanup_caches
-        cache_cleaned = force_cleanup_caches(max_age_s=max_age_s)
-        _logger.info(f"Memory intensive cleanup completed: {cache_cleaned} caches cleaned")
-    except Exception as e:
-        _logger.error(f"Error in memory intensive cleanup: {e}")
     
     # Execute cleanups outside of scan lock
     for cleanup in cleanups_to_run:
         try:
             guard_type = cleanup['guard_type']
             max_age_s = cleanup['max_age_s']
-            _logger.info(f"_execute_scheduled_cleanups: Executing {guard_type} cleanup with max_age_s={max_age_s}")
             
             if guard_type == 'file':
                 from .guards.file_guard import force_cleanup_files
                 cleanup_count = force_cleanup_files(max_age_s=max_age_s)
-                _logger.info(f"File cleanup completed: {cleanup_count} files cleaned")
+                _logger.debug(f"File cleanup completed: {cleanup_count} files cleaned")
             elif guard_type == 'socket':
                 from .guards.socket_guard import force_cleanup_sockets  
                 cleanup_count = force_cleanup_sockets(max_age_s=max_age_s)
-                _logger.info(f"Socket cleanup completed: {cleanup_count} sockets cleaned")
+                _logger.debug(f"Scheduled socket auto-cleanup: {cleanup_count} sockets cleaned")
             elif guard_type == 'asyncio':
                 from .guards.asyncio_guard import force_cleanup_asyncio
                 task_count, timer_count = force_cleanup_asyncio(max_age_s=max_age_s)
-                _logger.info(f"Asyncio cleanup completed: {task_count} tasks, {timer_count} timers cleaned")
+                _logger.debug(f"Scheduled asyncio auto-cleanup: {task_count} tasks, {timer_count} timers cleaned")
             elif guard_type == 'event':
                 from .guards.event_guard import force_cleanup_listeners
                 cleanup_count = force_cleanup_listeners(max_age_s=max_age_s)
-                _logger.info(f"Event cleanup completed: {cleanup_count} listeners cleaned")
-            elif guard_type == 'cache':
-                from .detectors.cache_detector import force_cleanup_caches
-                cleanup_count = force_cleanup_caches(max_age_s=max_age_s)
-                _logger.info(f"Cache cleanup completed: {cleanup_count} caches cleaned")
+                _logger.debug(f"Scheduled event auto-cleanup: {cleanup_count} listeners cleaned")
         except Exception as e:
-            _logger.error(f"Error in scheduled cleanup for {guard_type}: {e}")
-            import traceback
-            _logger.error(f"Cleanup error traceback: {traceback.format_exc()}")
-    
-    # Check and execute any due intensive cleanups
-    _execute_intensive_cleanups()
+            _logger.debug(f"Error in scheduled cleanup for {guard_type}: {e}")
 
 # Performance monitoring
 _performance_stats = {
@@ -370,9 +245,7 @@ def protect(threshold_mb: int = MemGuardConfig.threshold_mb,
            auto_cleanup: Optional[Dict[str, bool]] = None,
            debug_mode: bool = MemGuardConfig.debug_mode,
            background: bool = True,
-           config: Optional[MemGuardConfig] = None,
-           monitoring_mode: str = "hybrid",
-           intensive_cleanup_schedule: str = "custom") -> None:
+           config: Optional[MemGuardConfig] = None) -> None:
     """
     Start MemGuard memory leak protection.
     
@@ -385,8 +258,6 @@ def protect(threshold_mb: int = MemGuardConfig.threshold_mb,
         debug_mode: Enable debugging output (testing only, adds overhead)
         background: Run background scanner
         config: Pre-configured MemGuardConfig object
-        monitoring_mode: Monitoring mode ('light', 'deep', or 'hybrid')
-        intensive_cleanup_schedule: Schedule for intensive cleanup ('never', 'hourly', 'daily', 'custom')
     
     This is the main entry point for MemGuard protection.
     """
@@ -406,9 +277,7 @@ def protect(threshold_mb: int = MemGuardConfig.threshold_mb,
                     poll_interval_s=poll_interval_s,
                     sample_rate=sample_rate,
                     patterns=patterns,
-                    debug_mode=debug_mode,
-                    monitoring_mode=monitoring_mode,
-                    intensive_cleanup_schedule=intensive_cleanup_schedule
+                    debug_mode=debug_mode
                 )
                 
                 # Configure auto_cleanup per pattern if provided
@@ -684,9 +553,6 @@ def analyze_with_cleanup(config: MemGuardConfig, force_full_scan: bool = False) 
             
     except Exception as e:
         _logger.error(f"Error during analysis with cleanup: {e}")
-        # Add detailed error tracing
-        import traceback
-        _logger.error(f"Full traceback: {traceback.format_exc()}")
         # Return empty report on error
         return create_report(
             findings=[],
@@ -718,111 +584,31 @@ def get_status() -> Dict[str, Any]:
     Get comprehensive status information about MemGuard.
     
     Returns:
-        Dictionary with standardized schema for observability integration
-        
-    Schema Version: 1.0
-    Required fields for dashboard/monitoring compatibility:
-    - schema_version, is_protecting, uptime_seconds, scan_count
-    - performance_stats.overhead_percentage, performance_stats.memory_current_mb
-    - guards, detectors (with versions and status)
+        Dictionary with protection status, configuration, and performance metrics
     """
     with _memguard_state['protection_lock']:
         config = _memguard_state.get('config')
         
-        # Calculate overhead percentage for observability
-        overhead_pct = _performance_stats.get('overhead_percentage', 0.0)
-        
-        # Standardized status schema v1.0
         status = {
-            # Schema metadata for compatibility
-            'schema_version': '1.0',
-            'memguard_version': '1.0.0',
-            'timestamp': time.time(),
-            
-            # Core status (required by tests/dashboards)
             'is_protecting': _memguard_state['is_protecting'],
             'uptime_seconds': time.time() - _memguard_state['start_time'] if _memguard_state['start_time'] else 0,
             'scan_count': _memguard_state['scan_count'],
             'last_scan_age_seconds': time.time() - _memguard_state['last_scan_time'] if _memguard_state['last_scan_time'] else None,
-            'background_scanner_active': _memguard_state['background_scanner'] is not None,
-            
-            # Performance metrics (standardized for observability)
-            'performance_stats': {
-                'memory_baseline_mb': _performance_stats.get('memory_baseline_mb', 0.0),
-                'memory_current_mb': _performance_stats.get('memory_current_mb', 0.0),
-                'memory_growth_mb': _performance_stats.get('memory_current_mb', 0.0) - _performance_stats.get('memory_baseline_mb', 0.0),
-                'total_findings': _performance_stats.get('total_findings', 0),
-                'total_scans': _performance_stats.get('total_scans', 0),
-                'avg_scan_duration_ms': _performance_stats.get('avg_scan_duration_ms', 0.0),
-                'overhead_percentage': overhead_pct,  # Critical for customer self-verification
-                'scan_frequency_hz': 1.0 / config.poll_interval_s if config else 0.0
-            },
-            
-            # Guards status (versioned for compatibility)
-            'guards': {},
-            
-            # Detectors status (versioned for compatibility) 
-            'detectors': {},
-            
-            # Configuration (stable subset)
-            'configuration': {},
-            
-            # Environment (stable fields only)
-            'environment': {
-                'hostname': _environment_info.get('hostname', 'unknown'),
-                'platform': _environment_info.get('platform', 'unknown'),
-                'python_version': _environment_info.get('python_version', 'unknown'),
-                'process_name': _environment_info.get('process_name', 'unknown')
-            }
+            'installed_guards': list(_memguard_state['installed_guards']),
+            'installed_detectors': list(_memguard_state['installed_detectors']),
+            'performance_stats': _performance_stats.copy(),
+            'environment_info': _environment_info.copy(),
+            'background_scanner_active': _memguard_state['background_scanner'] is not None
         }
         
-        # Populate guards with versions and status
-        for guard in _GUARD_MODULES:
-            guard_active = guard.name in _memguard_state['installed_guards']
-            try:
-                guard_info = guard.info_func() if guard_active else {}
-                status['guards'][guard.pattern_name] = {
-                    'version': '1.0.0',
-                    'active': guard_active,
-                    'status': 'running' if guard_active else 'disabled',
-                    'performance': guard_info
-                }
-            except Exception as e:
-                status['guards'][guard.pattern_name] = {
-                    'version': '1.0.0',
-                    'active': False,
-                    'status': 'error',
-                    'error': str(e)
-                }
-        
-        # Populate detectors with versions and status
-        for detector in _DETECTOR_MODULES:
-            detector_active = detector.name in _memguard_state['installed_detectors']
-            try:
-                detector_info = detector.info_func() if detector_active else {}
-                status['detectors'][detector.pattern_name] = {
-                    'version': '1.0.0',
-                    'active': detector_active,
-                    'status': 'running' if detector_active else 'disabled',
-                    'performance': detector_info
-                }
-            except Exception as e:
-                status['detectors'][detector.pattern_name] = {
-                    'version': '1.0.0',
-                    'active': False,
-                    'status': 'error',
-                    'error': str(e)
-                }
-        
-        # Stable configuration subset (avoid exposing internals)
         if config:
             status['configuration'] = {
                 'threshold_mb': config.threshold_mb,
                 'poll_interval_s': config.poll_interval_s,
                 'sample_rate': config.sample_rate,
-                'patterns': list(config.patterns),
-                'auto_cleanup_enabled': any(config.auto_cleanup_enabled(p) for p in config.patterns),
-                'debug_mode': config.debug_mode
+                'patterns': config.patterns,
+                'debug_mode': config.debug_mode,
+                'mode': config.mode
             }
         
         return status
@@ -908,33 +694,26 @@ def _uninstall_protection_modules() -> None:
 
 
 def _start_background_scanner(config: MemGuardConfig) -> None:
-    """Start background scanning thread with hybrid monitoring support."""
+    """Start background scanning thread."""
     if _memguard_state['background_scanner'] is not None:
         return
     
     _memguard_state['background_stop_event'].clear()
-    _memguard_state['monitoring_mode'] = config.monitoring_mode
-    
-    # Schedule initial intensive cleanup if configured
-    cleanup_schedule = config.get_intensive_cleanup_schedule()
-    if cleanup_schedule and config.intensive_cleanup_schedule != "never":
-        _schedule_next_intensive_cleanup(config)
     
     def background_scan_loop():
-        """Background thread that periodically scans for leaks with hybrid monitoring."""
-        _logger.debug(f"Background scanner started in {config.monitoring_mode} mode")
+        """Background thread that periodically scans for leaks."""
+        _logger.debug("Background scanner started")
         
         last_summary_time = time.time()
         scan_count = 0
-        light_scan_findings_count = 0
         
         while not _memguard_state['background_stop_event'].wait(config.poll_interval_s):
             try:
                 scan_count += 1
                 current_time = time.time()
                 
-                # Hybrid monitoring: Determine scan type based on mode and triggers
-                should_deep_scan = _should_trigger_deep_scan(config, light_scan_findings_count, scan_count)
+                # CRITICAL FIX: Always perform regular scans for production use
+                # Don't wait for memory threshold - proactive monitoring is essential
                 
                 # Check memory levels for context
                 memory_tracker = get_memory_tracker()
@@ -948,37 +727,24 @@ def _start_background_scanner(config: MemGuardConfig) -> None:
                     
                     if threshold_exceeded:
                         _logger.info(f"Memory threshold exceeded: {current_memory:.1f}MB (baseline: {baseline_memory:.1f}MB)")
-                        should_deep_scan = True  # Force deep scan on threshold breach
                 
-                # Perform scan based on monitoring mode
-                scan_type = "deep" if should_deep_scan else "light"
-                _logger.debug(f"Background scan #{scan_count} starting ({scan_type} mode, memory: {current_memory:.1f}MB)")
-                
-                if should_deep_scan:
-                    report = _analyze_with_deep_scan(config)
-                    light_scan_findings_count = 0  # Reset trigger counter
-                else:
-                    report = _analyze_with_light_scan(config)
-                    light_scan_findings_count += len(report.findings)
+                # Always perform analysis for proactive detection and cleanup
+                _logger.debug(f"Background scan #{scan_count} starting (memory: {current_memory:.1f}MB)")
+                report = analyze_with_cleanup(config)
                 
                 if report.findings:
-                    _logger.warning(f"Background scan found {len(report.findings)} potential leaks ({scan_type} mode)")
-                    
-                    # Log critical findings
-                    critical_findings = report.critical_findings
-                    if critical_findings:
-                        for finding in critical_findings[:3]:  # Log top 3 critical
-                            _logger.error(f"CRITICAL LEAK: {finding.pattern} at {finding.location} "
-                                        f"({finding.size_mb:.1f}MB) - {finding.suggested_fix}")
-                    
-                    # In light mode, accumulate findings for deep scan trigger
-                    if not should_deep_scan and len(report.findings) >= config.deep_scan_trigger_threshold:
-                        _logger.info(f"Light scan found {len(report.findings)} findings, triggering deep scan on next cycle")
-                        light_scan_findings_count = config.deep_scan_trigger_threshold
+                            _logger.warning(f"Background scan found {len(report.findings)} potential leaks")
+                            
+                            # Log critical findings
+                            critical_findings = report.critical_findings
+                            if critical_findings:
+                                for finding in critical_findings[:3]:  # Log top 3 critical
+                                    _logger.error(f"CRITICAL LEAK: {finding.pattern} at {finding.location} "
+                                                f"({finding.size_mb:.1f}MB) - {finding.suggested_fix}")
                 
                 # Debug mode summary (testing only)
                 if config.debug_mode and current_time - last_summary_time >= 60.0:
-                    print(f"🔍 DEBUG: {scan_count} scans ({config.monitoring_mode} mode) in {current_time - last_summary_time:.0f}s | Memory: {current_memory:.1f}MB | Findings buffer: {light_scan_findings_count}")
+                    print(f"🔍 DEBUG: {scan_count} scans in {current_time - last_summary_time:.0f}s | Memory: {current_memory:.1f}MB")
                     last_summary_time = current_time
                     scan_count = 0
                 
@@ -995,299 +761,6 @@ def _start_background_scanner(config: MemGuardConfig) -> None:
     scanner_thread.start()
     _memguard_state['background_scanner'] = scanner_thread
 
-
-def analyze(threshold_mb: Optional[int] = None,
-           sample_rate: Optional[float] = None) -> MemGuardReport:
-    """
-    Analyze current memory usage and detect potential leaks.
-    
-    Args:
-        threshold_mb: Memory threshold override (uses config default if None)
-        sample_rate: Sample rate override (uses config default if None)
-        
-    Returns:
-        MemGuardReport with detected leaks and findings
-    """
-    if not _memguard_state['is_protecting']:
-        return create_report([])
-    
-    config = _memguard_state['config']
-    if not config:
-        return create_report([])
-    
-    # Use provided thresholds or fall back to config
-    actual_threshold = threshold_mb if threshold_mb is not None else config.threshold_mb
-    actual_sample_rate = sample_rate if sample_rate is not None else config.sample_rate
-    
-    # Collect findings from all installed guards and detectors
-    all_findings = []
-    
-    # Scan file guards
-    if 'file_guard' in _memguard_state['installed_guards']:
-        try:
-            from .guards.file_guard import scan_open_files
-            tuning = config.tuning_for('handles')
-            file_findings = scan_open_files(max_age_s=tuning.max_age_s)
-            all_findings.extend(file_findings)
-        except Exception as e:
-            _logger.debug(f"Error scanning files: {e}")
-    
-    # Scan socket guards  
-    if 'socket_guard' in _memguard_state['installed_guards']:
-        try:
-            from .guards.socket_guard import scan_open_sockets
-            tuning = config.tuning_for('handles')  # sockets use handles tuning
-            socket_findings = scan_open_sockets(max_age_s=tuning.max_age_s)
-            all_findings.extend(socket_findings)
-        except Exception as e:
-            _logger.debug(f"Error scanning sockets: {e}")
-    
-    # Scan asyncio guards
-    if 'asyncio_guard' in _memguard_state['installed_guards']:
-        try:
-            from .guards.asyncio_guard import scan_running_tasks
-            tuning = config.tuning_for('timers')
-            asyncio_findings = scan_running_tasks(max_age_s=tuning.max_age_s)
-            all_findings.extend(asyncio_findings)
-        except Exception as e:
-            _logger.debug(f"Error scanning asyncio: {e}")
-    
-    # Scan cache detectors
-    if 'cache_detector' in _memguard_state['installed_detectors']:
-        try:
-            from .detectors.caches import scan_cache_growth
-            tuning = config.tuning_for('caches')
-            cache_findings = scan_cache_growth(min_growth=tuning.min_growth, min_len=tuning.min_len)
-            all_findings.extend(cache_findings)
-        except Exception as e:
-            _logger.debug(f"Error scanning caches: {e}")
-    
-    # Update performance stats
-    _performance_stats['total_scans'] += 1
-    _performance_stats['total_findings'] += len(all_findings)
-    
-    return create_report(all_findings)
-
-
-def analyze_with_cleanup(config: MemGuardConfig) -> MemGuardReport:
-    """
-    Analyze current memory usage with auto-cleanup enabled.
-    
-    This function performs leak detection and triggers cleanup actions
-    for patterns that have auto_cleanup enabled in the configuration.
-    
-    Args:
-        config: MemGuard configuration with cleanup settings
-        
-    Returns:
-        MemGuardReport with findings and cleanup actions performed
-    """
-    # First perform standard analysis
-    report = analyze()
-    
-    # If no findings, return early
-    if not report.findings:
-        _logger.debug("analyze_with_cleanup: No findings to process")
-        return report
-    
-    _logger.debug(f"analyze_with_cleanup: Processing {len(report.findings)} findings")
-    
-    # Group findings by pattern for cleanup decisions
-    findings_by_pattern = {}
-    for finding in report.findings:
-        pattern = finding.pattern
-        if pattern not in findings_by_pattern:
-            findings_by_pattern[pattern] = []
-        findings_by_pattern[pattern].append(finding)
-    
-    _logger.debug(f"analyze_with_cleanup: Findings by pattern: {[(k, len(v)) for k, v in findings_by_pattern.items()]}")
-    
-    # Process cleanup for each pattern type
-    for pattern, pattern_findings in findings_by_pattern.items():
-        _logger.debug(f"analyze_with_cleanup: Processing pattern '{pattern}' with {len(pattern_findings)} findings")
-        
-        # Check if auto-cleanup is enabled for this pattern
-        auto_cleanup_enabled = config.auto_cleanup_enabled(pattern)
-        _logger.debug(f"analyze_with_cleanup: Pattern '{pattern}' auto_cleanup_enabled: {auto_cleanup_enabled}")
-        
-        if not auto_cleanup_enabled:
-            _logger.debug(f"analyze_with_cleanup: Skipping '{pattern}' - auto-cleanup disabled")
-            continue
-            
-        # Get pattern-specific tuning
-        tuning = config.tuning_for(pattern)
-        if not tuning or not tuning.auto_cleanup:
-            _logger.debug(f"analyze_with_cleanup: Skipping '{pattern}' - tuning disabled (tuning: {tuning})")
-            continue
-        
-        _logger.debug(f"analyze_with_cleanup: Pattern '{pattern}' tuning: auto_cleanup={tuning.auto_cleanup}, max_age_s={tuning.max_age_s}")
-        
-        # Schedule cleanup based on pattern type and findings
-        cleanup_threshold = tuning.max_age_s
-        
-        # Only schedule if we have findings (adjusted thresholds for comprehensive cleanup)
-        threshold_by_pattern = {
-            'handles': 3,      # Files/sockets need more findings (they generate many)
-            'caches': 1,       # Cache leaks are significant even with 1 finding
-            'timers': 1,       # Timer leaks are significant even with 1 finding  
-            'cycles': 1,       # Cycle leaks are significant even with 1 finding
-            'listeners': 1     # Event listener leaks are significant even with 1 finding
-        }
-        threshold = threshold_by_pattern.get(pattern, 1)  # Default to 1 for new patterns
-        
-        if len(pattern_findings) >= threshold:
-            _logger.info(f"analyze_with_cleanup: Scheduling cleanup for pattern '{pattern}' - {len(pattern_findings)} findings exceed threshold")
-            
-            if pattern == 'handles':
-                # Handles pattern covers both files and sockets
-                _schedule_guard_cleanup('file', cleanup_threshold)
-                _schedule_guard_cleanup('socket', cleanup_threshold)
-                _logger.info(f"analyze_with_cleanup: Scheduled file and socket cleanup with threshold {cleanup_threshold}s")
-            elif pattern == 'timers':
-                _schedule_guard_cleanup('asyncio', cleanup_threshold)
-                _logger.info(f"analyze_with_cleanup: Scheduled asyncio cleanup with threshold {cleanup_threshold}s")
-            elif pattern == 'listeners':
-                _schedule_guard_cleanup('event', cleanup_threshold)
-                _logger.info(f"analyze_with_cleanup: Scheduled event cleanup with threshold {cleanup_threshold}s")
-            elif pattern == 'caches':
-                # Schedule cache cleanup via detector
-                _schedule_cache_cleanup(cleanup_threshold)
-                _logger.info(f"analyze_with_cleanup: Scheduled cache cleanup with threshold {cleanup_threshold}s")
-            elif pattern == 'cycles':
-                # Cycles are detection-only for safety (breaking cycles can cause issues)
-                _logger.info(f"analyze_with_cleanup: Cycles detected but cleanup skipped for safety - {len(pattern_findings)} cycle findings")
-            
-            _logger.debug(f"Scheduled cleanup for {pattern}: {len(pattern_findings)} findings")
-        else:
-            _logger.debug(f"analyze_with_cleanup: Not scheduling cleanup for '{pattern}' - only {len(pattern_findings)} findings (need ≥{threshold})")
-    
-    # Execute any scheduled cleanups
-    _execute_scheduled_cleanups()
-    
-    return report
-
-
-def _should_trigger_deep_scan(config: MemGuardConfig, light_findings_count: int, scan_count: int) -> bool:
-    """Determine if a deep scan should be triggered based on monitoring mode and conditions."""
-    if config.monitoring_mode == "deep":
-        return True
-    elif config.monitoring_mode == "light":
-        return False
-    elif config.monitoring_mode == "hybrid":
-        # Trigger deep scan if:
-        # 1. Light scan findings exceed threshold
-        # 2. Every 10th scan (fallback to ensure periodic deep scans)
-        # 3. Next scheduled deep scan time has arrived
-        return (light_findings_count >= config.deep_scan_trigger_threshold or
-                scan_count % 10 == 0 or
-                time.time() >= _memguard_state.get('next_scheduled_deep_scan', 0.0))
-    return False
-
-def _analyze_with_light_scan(config: MemGuardConfig) -> MemGuardReport:
-    """Perform lightweight analysis with reduced sampling and selected patterns."""
-    # Use light sampling rate
-    light_config = config.merge(sample_rate=config.get_current_sample_rate(is_deep_scan=False))
-    
-    # Only scan high-priority patterns in light mode
-    start_time = time.perf_counter()
-    scan_findings: List[LeakFinding] = []
-    
-    try:
-        # Scan only high-priority guards in light mode
-        for guard in _GUARD_MODULES:
-            if guard.name in _memguard_state['installed_guards']:
-                if config.should_pattern_run_in_light_mode(guard.pattern_name):
-                    try:
-                        guard_findings = guard.scan_func()
-                        # Sample findings to reduce overhead
-                        sampled_findings = _sample_findings(guard_findings, light_config.get_current_sample_rate())
-                        scan_findings.extend(sampled_findings)
-                    except Exception as e:
-                        _logger.debug(f"Error in light scan {guard.name}: {e}")
-        
-        # Skip expensive detectors in light mode unless high priority
-        for detector in _DETECTOR_MODULES:
-            if detector.name in _memguard_state['installed_detectors']:
-                if config.should_pattern_run_in_light_mode(detector.pattern_name):
-                    try:
-                        if detector.pattern_name == "cycles":
-                            continue  # Skip cycles in light mode (too expensive)
-                        detector_findings = detector.scan_func()
-                        sampled_findings = _sample_findings(detector_findings, light_config.get_current_sample_rate())
-                        scan_findings.extend(sampled_findings)
-                    except Exception as e:
-                        _logger.debug(f"Error in light scan {detector.name}: {e}")
-        
-        # Create lightweight report
-        memory_tracker = get_memory_tracker()
-        current_memory = memory_tracker.get_rss_mb() if memory_tracker.is_available() else 0.0
-        scan_duration = (time.perf_counter() - start_time) * 1000
-        
-        return create_report(
-            findings=scan_findings,
-            scan_duration_ms=scan_duration,
-            memory_baseline_mb=_performance_stats['memory_baseline_mb'],
-            memory_current_mb=current_memory,
-            sampling_rate=light_config.get_current_sample_rate(),
-            hostname=_environment_info['hostname'],
-            process_name=_environment_info['process_name'],
-            python_version=_environment_info['python_version'],
-            platform=_environment_info['platform']
-        )
-        
-    except Exception as e:
-        _logger.error(f"Error during light analysis: {e}")
-        return create_report(
-            findings=[],
-            scan_duration_ms=(time.perf_counter() - start_time) * 1000,
-            memory_current_mb=0.0
-        )
-
-def _analyze_with_deep_scan(config: MemGuardConfig) -> MemGuardReport:
-    """Perform comprehensive analysis with full sampling and cleanup."""
-    _logger.info("Starting deep scan (higher overhead expected)")
-    deep_config = config.merge(sample_rate=config.get_current_sample_rate(is_deep_scan=True))
-    
-    # Use existing comprehensive analysis with cleanup
-    report = analyze_with_cleanup(deep_config)
-    
-    # Update next scheduled deep scan time
-    _memguard_state['next_scheduled_deep_scan'] = time.time() + (config.poll_interval_s * 10)  # Next deep scan in 10 cycles
-    
-    _logger.info(f"Deep scan completed: {len(report.findings)} findings, {report.scan_duration_ms:.1f}ms")
-    return report
-
-def _sample_findings(findings: List[LeakFinding], sample_rate: float) -> List[LeakFinding]:
-    """Sample findings based on rate to reduce overhead in light mode."""
-    if sample_rate >= 1.0 or not findings:
-        return findings
-    
-    import random
-    sample_size = max(1, int(len(findings) * sample_rate))
-    return random.sample(findings, sample_size)
-
-def _schedule_next_intensive_cleanup(config: MemGuardConfig) -> None:
-    """Schedule the next intensive cleanup based on configuration."""
-    try:
-        import croniter
-        from datetime import datetime
-        
-        schedule = config.get_intensive_cleanup_schedule()
-        if not schedule:
-            return
-        
-        now = datetime.now()
-        cron = croniter.croniter(schedule, now)
-        next_time = cron.get_next(datetime)
-        next_timestamp = next_time.timestamp()
-        
-        _schedule_intensive_cleanup("comprehensive", next_timestamp, max_age_s=300.0)
-        _logger.info(f"Next intensive cleanup scheduled for {next_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-    except ImportError:
-        _logger.warning("croniter not available - intensive cleanup scheduling disabled")
-    except Exception as e:
-        _logger.error(f"Error scheduling intensive cleanup: {e}")
 
 def _stop_background_scanner() -> None:
     """Stop background scanning thread."""

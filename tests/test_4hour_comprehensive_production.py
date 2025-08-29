@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-4-Hour Comprehensive Production Test for MemGuard Pro ML-Enhanced Detection System
+4-Hour Comprehensive Production Test for MemGuard Open Source ML-Enhanced Detection System
 Generates real-world data for memguard.net website claims and validation.
 
 This test runs a complete production simulation for 4 hours with:
-- Full Pro features enabled (ML-based detection + rule-based cleanup)
+- Full ML-powered features (adaptive learning + rule-based cleanup)
 - Real FastAPI application under load
 - Comprehensive leak detection across all resource types
 - Hourly performance logs
@@ -734,7 +734,9 @@ class ComprehensiveProductionTest:
     def start_fastapi_application(self):
         """Start the FastAPI application for realistic testing"""
         try:
-            cmd = [sys.executable, "taskflow_api.py"]
+            # Use the example FastAPI app from example_app directory
+            api_path = project_root / "example_app" / "taskflow_api.py"
+            cmd = [sys.executable, str(api_path)]
             # Fix pipe buffer overflow by using subprocess.DEVNULL
             # Create log files for FastAPI debugging
             fastapi_log_dir = self.reports_dir / "fastapi_logs"
@@ -1116,8 +1118,8 @@ class ComprehensiveProductionTest:
             os.environ['MEMGUARD_RULE_BASED_CLEANUP'] = '1'
             
             memguard.protect(
-                # Use exact engine defaults for authentic production testing
-                license_key='MEMGUARD-PRO-001-GLOBAL'
+                # ML-powered open source system with full features
+                monitoring_mode="hybrid"
             )
             logger.info("[CHECK] MemGuard started")
             

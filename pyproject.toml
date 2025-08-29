@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "memguard"
-description = "Advanced Memory Leak Detection and Auto-Cleanup for Python Applications"
+description = "Open Source Memory Leak Detection and Auto-Cleanup for Python Applications"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "MemGuard Team", email = "support@memguard.dev"},
+    {name = "Kyle Clouthier", email = "kyle@example.com"},
 ]
 maintainers = [
-    {name = "MemGuard Team", email = "support@memguard.dev"},
+    {name = "Kyle Clouthier", email = "kyle@example.com"},
 ]
 keywords = [
     "memory leak detection",
@@ -53,11 +53,10 @@ dependencies = [
 dynamic = ["version"]
 
 [project.urls]
-"Homepage" = "https://github.com/memguard/memguard"
-"Bug Reports" = "https://github.com/memguard/memguard/issues"
-"Source" = "https://github.com/memguard/memguard"
-"Documentation" = "https://docs.memguard.dev"
-"Pro Upgrade" = "https://memguard.dev/pro"
+"Homepage" = "https://github.com/MemGuard/memguard_community"
+"Bug Reports" = "https://github.com/MemGuard/memguard_community/issues"
+"Source" = "https://github.com/MemGuard/memguard_community"
+"Documentation" = "https://github.com/MemGuard/memguard_community/wiki"
 
 [project.optional-dependencies]
 dev = [
@@ -66,11 +65,6 @@ dev = [
     "black>=22.0.0",
     "flake8>=5.0.0",
     "mypy>=1.0.0",
-]
-pro = [
-    "firebase-admin>=6.0.0",
-    "google-cloud-firestore>=2.0.0",
-    "requests>=2.28.0",
 ]
 web = [
     "flask>=2.0.0",
