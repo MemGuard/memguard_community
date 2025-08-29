@@ -448,17 +448,11 @@ class MemGuardReport:
         - Development pattern recommendations
         - Predictive cost/performance analysis
         
-        NOTE: Pro users don't need to manually fix leaks - MemGuard Pro
-        handles all cleanup automatically. These insights help with
-        strategic planning and development practices.
+        NOTE: With auto-cleanup enabled, MemGuard handles leak cleanup
+        automatically. These insights help with strategic planning and
+        development practices.
         """
-        if self.license_type != 'PRO':
-            return {
-                'available': False,
-                'message': 'Advanced health metrics require MemGuard Pro'
-            }
-        
-        # Pro-only advanced analysis
+        # Advanced analysis (available in open source)
         metrics = {
             'available': True,
             'leak_velocity_score': self._calculate_leak_velocity_score(),
@@ -671,29 +665,20 @@ class MemGuardReport:
         }
         return tips.get(finding.pattern, "💡 Review resource cleanup and lifecycle management")
     
-    def should_suggest_pro_upgrade(self) -> bool:
-        """Check if we should suggest Pro upgrade based on findings."""
-        if self.license_type == 'PRO':
-            return False
-            
-        # Suggest upgrade if multiple findings or high severity
-        critical_high = [f for f in self.findings if f.severity.value in ['critical', 'high']]
-        return len(self.findings) >= 3 or len(critical_high) >= 1
-    
-    def get_pro_upgrade_message(self) -> str:
-        """Get contextual Pro upgrade message."""
-        if not self.should_suggest_pro_upgrade():
+    def get_auto_cleanup_suggestion(self) -> str:
+        """Get suggestion for enabling auto-cleanup features."""
+        findings_count = len(self.findings)
+        if findings_count == 0:
             return ""
             
-        findings_count = len(self.findings)
         cost = self.estimated_monthly_cost_usd
         
         messages = [
             f"🔧 Found {findings_count} memory leaks costing ${cost:.2f}/month?",
-            "💡 MemGuard Pro can automatically fix these issues so you never have to worry about them again.",
+            "💡 MemGuard can automatically fix these issues with auto-cleanup enabled.",
             "",
-            "✨ Upgrade now: memguard upgrade --pro",
-            "🔗 Get your license: https://memguard.net/"
+            "✨ Enable auto-cleanup: memguard.protect(auto_cleanup={'handles': True, 'caches': True})",
+            "📖 Learn more: https://github.com/MemGuard/memguard_community/wiki"
         ]
         
         return "\n".join(messages)
@@ -938,45 +923,21 @@ def create_report(findings: List[LeakFinding], **kwargs) -> MemGuardReport:
     
     # Check for Pro license only if not explicitly provided
     if not explicit_license_type:
-        try:
-            from .licensing import get_license_manager, ProFeatures
-            license_manager = get_license_manager()
-            
-            if license_manager.is_pro_licensed():
-                # Add Pro-specific metadata
-                license_status = license_manager.get_license_status()
-                pro_features = [feature for feature, enabled in license_status.get('features', {}).items() if enabled]
-                
-                # Calculate overhead percentage for Pro reports
-                baseline_mb = kwargs.get('memory_baseline_mb', 0.0)
-                current_mb = kwargs.get('memory_current_mb', 0.0)
-                overhead_pct = 0.0
-                if baseline_mb > 0:
-                    overhead_pct = ((current_mb - baseline_mb) / baseline_mb) * 100
-                
-                kwargs.update({
-                    'license_type': 'PRO',
-                    'pro_features_enabled': pro_features,
-                    'overhead_percentage': overhead_pct
-                })
-            else:
-                kwargs.setdefault('license_type', 'opensource')
-                kwargs.setdefault('pro_features_enabled', [])
-                kwargs.setdefault('overhead_percentage', 0.0)
-                
-        except ImportError:
-            # Fallback if licensing module not available
-            kwargs.setdefault('license_type', 'opensource')
-            kwargs.setdefault('pro_features_enabled', [])
-            kwargs.setdefault('overhead_percentage', 0.0)
+        # All features available in open source version
+        kwargs.setdefault('license_type', 'opensource')
+        kwargs.setdefault('pro_features_enabled', [])
+        
+        # Calculate overhead percentage for reports
+        baseline_mb = kwargs.get('memory_baseline_mb', 0.0)
+        current_mb = kwargs.get('memory_current_mb', 0.0)
+        overhead_pct = 0.0
+        if baseline_mb > 0:
+            overhead_pct = ((current_mb - baseline_mb) / baseline_mb) * 100
+        kwargs.setdefault('overhead_percentage', overhead_pct)
     else:
-        # If license_type is explicitly provided, set defaults for other Pro fields
-        if explicit_license_type == 'PRO':
-            kwargs.setdefault('pro_features_enabled', ['advancedHealthMetrics'])
-            kwargs.setdefault('overhead_percentage', 0.0)
-        else:
-            kwargs.setdefault('pro_features_enabled', [])
-            kwargs.setdefault('overhead_percentage', 0.0)
+        # If license_type is explicitly provided, set defaults for other fields
+        kwargs.setdefault('pro_features_enabled', [])
+        kwargs.setdefault('overhead_percentage', 0.0)
     
     return MemGuardReport(
         created_at=time.time(),

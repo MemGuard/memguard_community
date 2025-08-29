@@ -259,20 +259,10 @@ def install_cycle_detector(config: MemGuardConfig) -> None:
     # Standard detection configuration
     _logger.info("Cycle detector configured for optimal detection")
     
-    # Enable Pro-specific advanced detection algorithms
-    try:
-        from ..licensing import get_license_manager, ProFeatures
-        license_manager = get_license_manager()
-        
-        if license_manager.check_feature(ProFeatures.ADVANCED_DETECTION):
-            _gc_monitoring_config['advanced_algorithms'] = True
-            _gc_monitoring_config['check_interval_s'] = min(_gc_monitoring_config['check_interval_s'], 10.0)
-            _logger.info("Advanced detection algorithms enabled (Pro feature)")
-        else:
-            _gc_monitoring_config['advanced_algorithms'] = False
-            
-    except ImportError:
-        _gc_monitoring_config['advanced_algorithms'] = False
+    # Advanced detection algorithms (available in open source)
+    _gc_monitoring_config['advanced_algorithms'] = True
+    _gc_monitoring_config['check_interval_s'] = min(_gc_monitoring_config['check_interval_s'], 10.0)
+    _logger.info("Advanced detection algorithms enabled (open source)")
     
     # Store initial GC statistics
     _capture_gc_stats()
