@@ -925,24 +925,52 @@ def _is_system_critical_socket(tracked_socket) -> bool:
             if isinstance(local_addr, tuple) and len(local_addr) >= 2:
                 port = local_addr[1]
                 
-                # System-critical ports that should never be auto-closed
+                # ENHANCED CRITICAL PORTS - Comprehensive protection including dev/app ports
                 critical_ports = [
+                    # System services
                     22, 23, 25, 53, 67, 68, 69, 80, 110, 111, 123, 135, 139, 143, 161, 162, 389, 443, 445, 993, 995,
-                    1433, 1521, 2049, 3306, 3389, 5432, 5900, 6379, 11211, 27017
+                    1433, 1521, 2049, 3306, 3389, 5432, 5900, 6379, 11211, 27017,
+                    # Common development/application ports
+                    3000, 3001, 4000, 5000, 5432, 8000, 8080, 8888, 9000, 9090,
+                    # FastAPI/Uvicorn common ports
+                    8001, 8002, 8003, 8004, 8005
                 ]
                 
-                if port in critical_ports or port < 1024:  # Privileged ports
+                if port in critical_ports or port < 1024:  # Privileged ports + protected app ports
                     return True
         except:
             pass
         
-        # Check for protected socket patterns
+        # ENHANCED SOCKET STATE DETECTION - Check if socket is actively listening/serving
         try:
+            # Check if socket is in listening state (server socket)
+            try:
+                sock.listen(0)  # Test if socket can listen (will fail if already listening or not a TCP socket)
+            except OSError as e:
+                # If listen() fails with specific errors, socket is likely already listening/serving
+                if e.errno in [10022, 10056, 98]:  # WSAEINVAL (already listening), WSAEISCONN (connected), EADDRINUSE
+                    return True  # NEVER close listening/serving sockets
+            except:
+                pass
+            
+            # Check socket state via SO_ACCEPTCONN (listening state)
+            try:
+                import socket as socket_module
+                is_listening = sock.getsockopt(socket_module.SOL_SOCKET, socket_module.SO_ACCEPTCONN)
+                if is_listening:
+                    return True  # NEVER close listening sockets
+            except:
+                pass
+            
+            # Check for protected socket patterns
             socket_info = tracked_socket._get_safe_socket_info()
             socket_str = str(socket_info).lower()
             
-            # Protected patterns that should never be auto-closed
-            protected_patterns = ['ssh', 'ftp', 'smtp', 'http', 'https', 'database', 'db', 'mysql', 'postgres', 'redis']
+            # COMPREHENSIVE PROTECTED PATTERNS
+            protected_patterns = [
+                'ssh', 'ftp', 'smtp', 'http', 'https', 'database', 'db', 'mysql', 'postgres', 'redis',
+                'server', 'listen', 'accept', 'bind', 'uvicorn', 'fastapi', 'gunicorn', 'django', 'flask'
+            ]
             
             for pattern in protected_patterns:
                 if pattern in socket_str:
@@ -1015,7 +1043,7 @@ def _analyze_socket_activity(tracked_socket) -> float:
         return 0.0  # If analysis fails, assume active
 
 
-def _is_socket_safe_to_close(tracked_socket) -> bool:
+def _is_socket_safe_to_close(tracked_socket, max_age_s: float = 300.0) -> bool:
     """
     RULE-BASED CLEANUP SYSTEM: Production-ready socket abandonment detection.
     
@@ -1036,16 +1064,39 @@ def _is_socket_safe_to_close(tracked_socket) -> bool:
         socket_info = tracked_socket._get_safe_socket_info()
         socket_str = str(socket_info).lower()
         
-        # RULE 1: Always clean obvious test/temp socket patterns after threshold
-        temp_patterns = [
-            'test', 'temp', 'tmp', 'dev', 'debug', 'mock', 'dummy',
-            'localhost:8', 'localhost:9', '127.0.0.1:8', '127.0.0.1:9',
-            'socket_leak_', 'test_socket_', 'temp_conn_', ':0', 'ephemeral'
+        # RULE 1: PRODUCTION-SAFE - Only clean obvious leak patterns, protect server infrastructure
+        leak_patterns = [
+            'socket_leak_', 'test_socket_', 'temp_conn_', 'ephemeral',
+            'abandoned_', 'forgotten_', 'leak_test_'
         ]
         
-        for pattern in temp_patterns:
+        # INFRASTRUCTURE PROTECTION - Never close server/application sockets
+        protected_patterns = [
+            'fastapi', 'uvicorn', 'gunicorn', 'django', 'flask', 'tornado',
+            'server', 'listen', 'accept', 'bind', 'service', 'daemon',
+            ':80', ':443', ':8000', ':3000', ':5000', ':8080', ':8888',
+            'localhost:80', '127.0.0.1:80', '::1:80'
+        ]
+        
+        # ENHANCED INFRASTRUCTURE PROTECTION - Multiple detection methods
+        connection_info_str = str(tracked_socket._connection_info or '').lower()
+        
+        # Check for protected infrastructure patterns in socket info AND connection info
+        for pattern in protected_patterns:
+            if (pattern in socket_str or 
+                pattern in connection_info_str or
+                pattern in str(tracked_socket._local_addr or '').lower() or
+                pattern in str(tracked_socket._remote_addr or '').lower()):
+                return False  # NEVER close infrastructure sockets
+        
+        # ADDITIONAL CHECK: If socket has received significant traffic, likely infrastructure
+        if tracked_socket._bytes_sent > 1024 or tracked_socket._bytes_received > 1024:
+            return False  # Don't close active sockets with traffic
+        
+        # Only clean obvious leak test patterns
+        for pattern in leak_patterns:
             if pattern in socket_str:
-                return True  # Clean temp/test sockets aggressively
+                return True  # Clean obvious leak test sockets
         
         # RULE 2: Clean sockets that match abandoned connection patterns
         abandoned_patterns = [
@@ -1061,9 +1112,11 @@ def _is_socket_safe_to_close(tracked_socket) -> bool:
                 peer_addr = sock.getpeername()
                 # If we can get peer address, check if it's a temp/local connection
                 if isinstance(peer_addr, tuple) and len(peer_addr) >= 2:
-                    # Clean local development connections over threshold
+                    # PRODUCTION-SAFE: Only clean obvious test ports, protect common app ports
                     if peer_addr[0] in ['127.0.0.1', 'localhost', '::1']:
-                        if peer_addr[1] > 8000:  # Dev ports
+                        # PROTECTED PORTS: Common application/service ports
+                        protected_ports = [3000, 5000, 8000, 8080, 8888, 9000]
+                        if peer_addr[1] not in protected_ports and peer_addr[1] > 9999:  # Only high ephemeral ports
                             return True
             except socket.error:
                 # Socket is likely in error state or disconnected - safe to clean
@@ -1071,16 +1124,14 @@ def _is_socket_safe_to_close(tracked_socket) -> bool:
         except:
             pass
         
-        # RULE 3: Age-based cleanup with conservative thresholds
-        if age_seconds > 1800.0:  # 30 minutes - definitely abandoned
-            return True
-        elif age_seconds > 900.0:  # 15 minutes - likely abandoned  
-            return True
-        elif age_seconds > 600.0:  # 10 minutes - possibly abandoned
-            return True
-        elif age_seconds > 300.0:  # 5 minutes - production threshold
-            # Only clean if socket shows no activity signs
-            return _analyze_socket_activity(tracked_socket) > 0.6
+        # RULE 3: PRODUCTION-SAFE age-based cleanup - Much more conservative
+        if age_seconds > max_age_s * 10:  # 10x threshold - very conservative
+            # Additional safety check for infrastructure sockets
+            if not _is_system_critical_socket(tracked_socket):
+                return True
+        elif age_seconds > max_age_s * 5:  # 5x threshold - still very conservative
+            # Only clean if socket shows clear abandonment signs
+            return _analyze_socket_activity(tracked_socket) > 0.8
         
         return False
         
@@ -1106,7 +1157,7 @@ def force_cleanup_sockets(max_age_s: float = 300.0) -> int:
         for tracked in list(_tracked_sockets.values()):
             if not tracked.is_closed and tracked.age_seconds > max_age_s:
                 # SURGICAL FIX: Check if socket is truly abandoned vs actively needed
-                if _is_socket_safe_to_close(tracked):
+                if _is_socket_safe_to_close(tracked, max_age_s):
                     try:
                         # Force close the socket
                         tracked._socket.close()

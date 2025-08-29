@@ -57,6 +57,31 @@ def _env_int(name: str, default: int) -> int:
     except ValueError:
         return default
 
+def get_production_safe_fallback(testing_value: float, production_value: float) -> float:
+    """
+    PRODUCTION-SAFE FALLBACK: Return production-safe value unless testing mode is explicitly enabled.
+    
+    This ensures that even if testing configurations leak into production, we default to safe values.
+    """
+    # Check for explicit testing override
+    if os.getenv('MEMGUARD_TESTING_OVERRIDE') == '1':
+        return testing_value
+    
+    # Check for testing environment indicators
+    testing_indicators = [
+        'test', 'testing', 'pytest', 'unittest', 'development', 'dev',
+        'local', 'localhost', 'staging', 'debug'
+    ]
+    
+    # Check environment variables for testing indicators
+    for env_var in ['ENV', 'ENVIRONMENT', 'STAGE', 'MODE', 'NODE_ENV']:
+        env_value = os.getenv(env_var, '').lower()
+        if any(indicator in env_value for indicator in testing_indicators):
+            return testing_value
+    
+    # Default to production-safe value
+    return production_value
+
 @dataclass(frozen=True)
 class TelemetryConfig:
     """Telemetry settings (local-only by default)."""
@@ -98,45 +123,28 @@ class MemGuardConfig:
     # Monkey-patching controls (production safety)
     enable_monkeypatch_open: bool = True      # File handle tracking
     enable_monkeypatch_socket: bool = True    # Socket tracking
-    enable_monkeypatch_asyncio: bool = True   # Asyncio task tracking
+    enable_monkeypatch_timer: bool = True     # Timer tracking
+    enable_monkeypatch_cache: bool = True     # Cache tracking
+    enable_monkeypatch_event: bool = True     # Event listener tracking
     
-    # Compatibility exclusions for socket tracking
-    socket_compatibility_exclusions: Tuple[str, ...] = (
-        'grpc', 'twisted', 'asyncio', 'uvloop', 'gevent', 
-        'eventlet', 'tornado', 'aiohttp', 'requests'
-    )
-    
-    # Compatibility exclusions for asyncio tracking
-    asyncio_compatibility_exclusions: Tuple[str, ...] = (
-        'asyncio', 'uvloop', 'aiohttp', 'tornado', 'trio', 
-        'curio', 'anyio', 'grpc', 'celery', 'dramatiq'
-    )
-
-    # Enabled pattern set (typo-safe if you use PatternName)
+    # Pattern selection  
     patterns: Tuple[PatternName, ...] = ("handles", "caches", "timers", "cycles", "listeners")
-
     # Per-pattern tuning
     tuning: Mapping[PatternName, PatternTuning] = field(
         default_factory=lambda: {
-            "handles":   PatternTuning(auto_cleanup=False, max_age_s=60, memory_estimate_mb=0.002),
-            "timers":    PatternTuning(auto_cleanup=False, max_age_s=300, memory_estimate_mb=0.001),
+            "handles":   PatternTuning(auto_cleanup=True, max_age_s=300, memory_estimate_mb=0.002),  # PRODUCTION-SAFE: 5 minute threshold
+            "timers":    PatternTuning(auto_cleanup=True, max_age_s=600, memory_estimate_mb=0.001),  # PRODUCTION-SAFE: 10 minute threshold
             "caches":    PatternTuning(auto_cleanup=False, min_growth=64, min_len=512, memory_estimate_mb=1.0),
             "cycles":    PatternTuning(auto_cleanup=False, memory_estimate_mb=0.1),
-            "listeners": PatternTuning(auto_cleanup=False, memory_estimate_mb=0.001),
+            "listeners": PatternTuning(auto_cleanup=True, max_age_s=1800, memory_estimate_mb=0.001),  # PRODUCTION-SAFE: 30 minute threshold
         }
     )
 
-    # User-configurable protection patterns
-    protected_file_patterns: List[str] = field(default_factory=list)  # Custom file patterns to never auto-close
-    protected_socket_ports: List[int] = field(default_factory=list)    # Custom ports to never auto-close
-    
-    # Telemetry (local-only by default)
+    # Telemetry (separate section for clarity)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     
-    # Internal configuration (for debugging and advanced features)
-    _internal_config: dict = field(default_factory=dict)
-
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Validation post-init (even when frozen)."""
         # Validation (runs even when frozen via object.__setattr__)
         th = max(0, self.threshold_mb)
         pi = max(0.05, self.poll_interval_s)
@@ -157,45 +165,20 @@ class MemGuardConfig:
 
     @staticmethod
     def from_env(base: Optional["MemGuardConfig"] = None) -> "MemGuardConfig":
-        """
-        Build config from environment variables, overlaying a base config.
-        Supported envs:
-          MEMGUARD_THRESHOLD_MB
-          MEMGUARD_POLL_INTERVAL_S
-          MEMGUARD_SAMPLE_RATE
-          MEMGUARD_MODE (detect|prevent|hybrid)
-          MEMGUARD_KILL_SWITCH (0|1)
-          MEMGUARD_MONKEYPATCH_OPEN (0|1)
-          MEMGUARD_MONKEYPATCH_SOCKET (0|1)
-          MEMGUARD_MONKEYPATCH_ASYNCIO (0|1)
-          MEMGUARD_TELEMETRY (0|1)
-          MEMGUARD_EGRESS (off|anon|support)
-          MEMGUARD_RETENTION_DAYS
-        """
-        base = base or MemGuardConfig()
-        cfg = replace(
+        """Create config with environment variable overrides."""
+        if base is None:
+            base = MemGuardConfig()
+        
+        return replace(
             base,
             threshold_mb=_env_int("MEMGUARD_THRESHOLD_MB", base.threshold_mb),
             poll_interval_s=_env_float("MEMGUARD_POLL_INTERVAL_S", base.poll_interval_s),
             sample_rate=_env_float("MEMGUARD_SAMPLE_RATE", base.sample_rate),
+            mode=os.getenv("MEMGUARD_MODE", base.mode),  # type: ignore
             kill_switch=_env_bool("MEMGUARD_KILL_SWITCH", base.kill_switch),
-            enable_monkeypatch_open=_env_bool("MEMGUARD_MONKEYPATCH_OPEN", base.enable_monkeypatch_open),
-            enable_monkeypatch_socket=_env_bool("MEMGUARD_MONKEYPATCH_SOCKET", base.enable_monkeypatch_socket),
-            enable_monkeypatch_asyncio=_env_bool("MEMGUARD_MONKEYPATCH_ASYNCIO", base.enable_monkeypatch_asyncio),
-            mode=(os.getenv("MEMGUARD_MODE", base.mode) or base.mode),  # type: ignore
-            telemetry=TelemetryConfig(
-                enabled=_env_bool("MEMGUARD_TELEMETRY", base.telemetry.enabled),
-                endpoint=os.getenv("MEMGUARD_ENDPOINT", base.telemetry.endpoint),
-                redact=(os.getenv("MEMGUARD_REDACT", base.telemetry.redact) or base.telemetry.redact),  # type: ignore
-                egress_mode=(os.getenv("MEMGUARD_EGRESS", base.telemetry.egress_mode) or base.telemetry.egress_mode),  # type: ignore
-                retention_days=_env_int("MEMGUARD_RETENTION_DAYS", base.telemetry.retention_days),
-            ),
+            debug_mode=_env_bool("MEMGUARD_DEBUG", base.debug_mode),
+            testing_mode=_env_bool("MEMGUARD_TESTING_MODE", base.testing_mode),
         )
-        return cfg
-
-    def merge(self, **overrides) -> "MemGuardConfig":
-        """Return a copy with provided fields overridden (immutably)."""
-        return replace(self, **overrides)
 
     # --------- Convenience getters ---------
 
