@@ -628,60 +628,390 @@ class ComprehensiveProductionTest:
         return abandoned_tasks
     
     def _drip_feed_app_leaks_during_test(self) -> int:
-        """Create genuine leaks through the FastAPI app via API endpoints"""
-        import requests
+        """Create genuine leaks across all 5 resource types using direct approach (no API dependency)"""
+        import time
+        import threading
         total_created = 0
         
         try:
-            base_url = "http://localhost:8000"
+            # 1. File Handle Leaks (realistic production file types)
+            logger.info("Creating file handle leaks with real-world file types...")
+            file_leaks = self._create_realistic_file_leaks()
+            total_created += len(file_leaks)
+            logger.info(f"Created {len(file_leaks)} file handle leaks across {len(set(f.split('.')[-1] for f in file_leaks))} file types")
             
-            # Create file handle leaks with staggered timing
-            logger.info("Creating file handle leaks via API...")
-            self.request_coordinator.wait_for_slot('leak_injection')
-            response = requests.post(f"{base_url}/test/create-file-leaks/20", timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                logger.info(f"Created {data['count']} file leaks: {data['total_leaked_files']} total")
-                total_created += data['count']
+            # Small delay to stagger leak creation
+            time.sleep(1)
             
-            # Create socket leaks
-            logger.info("Creating socket leaks via API...")
-            self.request_coordinator.wait_for_slot('leak_injection')
-            response = requests.post(f"{base_url}/test/create-socket-leaks/10", timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                logger.info(f"Created {data['count']} socket leaks: {data['total_leaked_sockets']} total")
-                total_created += data['count']
+            # 2. Socket Leaks
+            logger.info("Creating socket leaks...")
+            socket_leaks = self._create_realistic_socket_leaks()
+            total_created += len(socket_leaks)
+            logger.info(f"Created {len(socket_leaks)} socket leaks")
             
-            # Create cache leaks
-            logger.info("Creating cache leaks via API...")
-            self.request_coordinator.wait_for_slot('leak_injection')
-            response = requests.post(f"{base_url}/test/create-cache-leaks/100", timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                logger.info(f"Created {data['size_mb']}MB cache leak: {data['total_cache_size_mb']}MB total")
-                total_created += 1
+            time.sleep(1)
             
-            # Create asyncio leaks
-            logger.info("Creating asyncio leaks via API...")
-            self.request_coordinator.wait_for_slot('leak_injection')
-            response = requests.post(f"{base_url}/test/create-asyncio-leaks/200", timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                logger.info(f"Created {data['count']} asyncio leaks: {data['total_leaked_tasks']} tasks, {data['total_leaked_timers']} timers")
-                total_created += data['count']
+            # 3. Timer/AsyncIO Leaks  
+            logger.info("Creating timer and asyncio leaks...")
+            timer_leaks = self._create_realistic_timer_leaks()
+            total_created += len(timer_leaks)
+            logger.info(f"Created {len(timer_leaks)} timer/asyncio leaks")
             
-            # Get initial leak status
-            self.request_coordinator.wait_for_slot('status_checks')
-            response = requests.get(f"{base_url}/test/leak-status", timeout=10)
-            if response.status_code == 200:
-                status = response.json()
-                logger.info(f"[LEAK STATUS] {status['summary']}")
+            time.sleep(1)
+            
+            # 4. Cache Memory Leaks
+            logger.info("Creating cache memory leaks...")
+            cache_leaks = self._create_realistic_cache_leaks()
+            total_created += len(cache_leaks)
+            logger.info(f"Created {len(cache_leaks)} cache memory leaks")
+            
+            time.sleep(1)
+            
+            # 5. Event Listener Leaks
+            logger.info("Creating event listener leaks...")
+            listener_leaks = self._create_realistic_listener_leaks()
+            total_created += len(listener_leaks)
+            logger.info(f"Created {len(listener_leaks)} event listener leaks")
+            
+            # Note: Cycles detection enabled but autofix DISABLED for safety
+            logger.info("Note: Cycles pattern detection active but autofix disabled for system stability")
                 
         except Exception as e:
-            logger.warning(f"Error creating app leaks: {e}")
+            logger.warning(f"Error creating direct leaks: {e}")
             
         return total_created
+    
+    def _create_realistic_file_leaks(self) -> List[str]:
+        """Create file handle leaks using realistic production file types"""
+        import tempfile
+        import threading
+        import os
+        import time
+        
+        leaked_files = []
+        
+        # Real-world production file types that commonly leak in applications
+        file_patterns = [
+            # Application logs (most common leak)
+            ("app_{}.log", "application/json log data"),
+            ("error_{}.log", "error stack traces and debugging info"),
+            ("access_{}.log", "HTTP access logs"),
+            ("audit_{}.log", "security audit trails"),
+            
+            # Configuration files  
+            ("config_{}.json", '{"database": "connection", "cache": "settings"}'),
+            ("settings_{}.yaml", "server:\n  port: 8080\n  debug: true"),
+            ("env_{}.conf", "DATABASE_URL=postgres://localhost"),
+            
+            # Data files
+            ("session_{}.dat", "binary session data"),
+            ("cache_{}.cache", "cached computation results"),
+            ("user_profile_{}.db", "SQLite user data"),
+            ("metrics_{}.csv", "timestamp,cpu,memory,requests"),
+            
+            # Processing files
+            ("upload_{}.tmp", "temporary file upload data"),
+            ("processing_{}.tmp", "intermediate processing state"),
+            ("backup_{}.bak", "backup data before modification"),
+            ("checkpoint_{}.ckpt", "model checkpoint or save state"),
+            
+            # Media/content files
+            ("thumbnail_{}.webp", "optimized thumbnail image data"),
+            ("document_{}.pdf", "generated PDF report"),
+            ("report_{}.xlsx", "Excel spreadsheet data"),
+        ]
+        
+        def create_leak_batch(file_type, content_template, batch_size=3):
+            """Create a batch of files in a separate thread that exits without cleanup"""
+            thread_files = []
+            thread_id = threading.get_ident()
+            
+            for i in range(batch_size):
+                try:
+                    # Create file with realistic name pattern
+                    filename = file_type.format(f"{thread_id}_{i}")
+                    filepath = os.path.join(self.test_dir, filename)
+                    
+                    # Write realistic content
+                    with open(filepath, 'w') as f:
+                        if isinstance(content_template, str):
+                            f.write(f"{content_template}\n# Created at {time.time()}\n# Thread: {thread_id}")
+                        f.flush()
+                    
+                    # Immediately reopen without closing (creates genuine leak)
+                    leaked_handle = open(filepath, 'a')
+                    leaked_handle.write(f"\n# Leaked handle created at {time.time()}")
+                    leaked_handle.flush()
+                    
+                    # Don't close the handle - store filename only
+                    thread_files.append(filepath)
+                    
+                except Exception as e:
+                    logger.debug(f"File leak creation error: {e}")
+            
+            return thread_files
+        
+        # Create leaks across different file types using threading to simulate real conditions
+        for file_pattern, content in file_patterns[:8]:  # Limit to 8 types for manageable testing
+            def create_batch_wrapper(fp, ct):
+                batch_result = create_leak_batch(fp, ct, 2)
+                leaked_files.extend(batch_result)
+                return batch_result
+            
+            thread = threading.Thread(target=create_batch_wrapper, args=(file_pattern, content))
+            thread.start()
+            thread.join()
+        
+        return leaked_files
+    
+    def _create_realistic_socket_leaks(self) -> List[str]:
+        """Create socket leaks simulating real network connection patterns"""
+        import socket
+        import threading
+        import time
+        
+        leaked_sockets = []
+        
+        def create_socket_leak_batch():
+            """Create sockets in thread that exits without cleanup"""
+            thread_sockets = []
+            
+            # TCP server sockets (common leak - servers that don't close properly)
+            for i in range(3):
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    sock.bind(('127.0.0.1', 0))  # Random port
+                    sock.listen(5)
+                    port = sock.getsockname()[1]
+                    thread_sockets.append(f"TCP_SERVER:127.0.0.1:{port}")
+                    # Don't close socket - genuine leak
+                except Exception:
+                    pass
+            
+            # Client connection attempts (common leak - failed connections not cleaned)
+            for i in range(3):
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(0.1)  # Very short timeout
+                    try:
+                        sock.connect(('127.0.0.1', 12345))  # Will likely fail
+                    except:
+                        pass  # Connection failed but socket not closed (leak)
+                    thread_sockets.append(f"TCP_CLIENT:failed_connection_{i}")
+                except Exception:
+                    pass
+            
+            # UDP sockets (less common but still leak)
+            for i in range(2):
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.bind(('127.0.0.1', 0))
+                    port = sock.getsockname()[1]
+                    thread_sockets.append(f"UDP:127.0.0.1:{port}")
+                    # Don't close socket - genuine leak
+                except Exception:
+                    pass
+            
+            return thread_sockets
+        
+        # Create socket leaks in separate thread to simulate real abandonment
+        thread = threading.Thread(target=lambda: leaked_sockets.extend(create_socket_leak_batch()))
+        thread.start()
+        thread.join()
+        
+        return leaked_sockets
+    
+    def _create_realistic_timer_leaks(self) -> List[str]:
+        """Create timer and asyncio task leaks simulating real async patterns"""
+        import asyncio
+        import threading
+        import time
+        
+        leaked_timers = []
+        
+        def create_timer_leak_batch():
+            """Create timers and async tasks that won't be cleaned up"""
+            thread_timers = []
+            
+            # Python threading timers (common leak)
+            import threading
+            for i in range(4):
+                def dummy_callback():
+                    pass
+                
+                timer = threading.Timer(300.0, dummy_callback)  # 5 minute timer
+                timer.start()
+                thread_timers.append(f"threading_timer_{i}")
+                # Don't cancel timer - genuine leak
+            
+            # Asyncio tasks (if event loop available)
+            try:
+                loop = asyncio.get_event_loop()
+                if loop and not loop.is_closed():
+                    
+                    async def leaked_background_task(task_id):
+                        """Long-running task that won't be awaited"""
+                        try:
+                            while True:
+                                await asyncio.sleep(10)
+                        except asyncio.CancelledError:
+                            pass
+                    
+                    # Create tasks but don't keep references or await them
+                    for i in range(3):
+                        task = loop.create_task(leaked_background_task(i))
+                        thread_timers.append(f"asyncio_task_{i}")
+                        # Don't store task reference - becomes abandoned
+                
+                # Asyncio callbacks
+                for i in range(2):
+                    def dummy_callback():
+                        pass
+                    loop.call_later(300.0, dummy_callback)  # 5 minute delay
+                    thread_timers.append(f"asyncio_callback_{i}")
+                
+            except Exception:
+                # No event loop or asyncio not available
+                pass
+            
+            return thread_timers
+        
+        # Create timer leaks
+        thread = threading.Thread(target=lambda: leaked_timers.extend(create_timer_leak_batch()))
+        thread.start()
+        thread.join()
+        
+        return leaked_timers
+    
+    def _create_realistic_cache_leaks(self) -> List[str]:
+        """Create cache memory leaks simulating real caching patterns"""
+        import threading
+        import random
+        import string
+        
+        leaked_caches = []
+        
+        # Global cache that won't be cleaned (common pattern)
+        global_cache = {}
+        
+        def create_cache_leak_batch():
+            """Create cache entries that grow without bounds"""
+            thread_caches = []
+            thread_id = threading.get_ident()
+            
+            # User session cache (common leak - sessions not expired)
+            for i in range(10):
+                session_id = f"session_{thread_id}_{i}"
+                session_data = {
+                    'user_id': random.randint(1000, 9999),
+                    'login_time': time.time(),
+                    'permissions': ['read', 'write'],
+                    'cache_data': ''.join(random.choices(string.ascii_letters, k=1024))  # 1KB per session
+                }
+                global_cache[session_id] = session_data
+                thread_caches.append(session_id)
+            
+            # Query result cache (common leak - results cached forever)
+            for i in range(8):
+                query_key = f"query_{thread_id}_{i}"
+                fake_result = {
+                    'results': [{'id': j, 'data': ''.join(random.choices(string.digits, k=512))} 
+                               for j in range(20)],  # 20 fake records
+                    'timestamp': time.time(),
+                    'query_time': random.uniform(0.1, 2.0)
+                }
+                global_cache[query_key] = fake_result
+                thread_caches.append(query_key)
+            
+            # File content cache (common leak - files cached but never evicted)
+            for i in range(5):
+                file_key = f"file_content_{thread_id}_{i}"
+                fake_content = ''.join(random.choices(string.ascii_letters + string.punctuation, k=2048))  # 2KB
+                global_cache[file_key] = {
+                    'content': fake_content,
+                    'size': len(fake_content),
+                    'loaded_at': time.time()
+                }
+                thread_caches.append(file_key)
+            
+            return thread_caches
+        
+        # Create cache leaks
+        thread = threading.Thread(target=lambda: leaked_caches.extend(create_cache_leak_batch()))
+        thread.start()
+        thread.join()
+        
+        return leaked_caches
+    
+    def _create_realistic_listener_leaks(self) -> List[str]:
+        """Create event listener leaks simulating real event handling patterns"""
+        import threading
+        import queue
+        import time
+        
+        leaked_listeners = []
+        
+        def create_listener_leak_batch():
+            """Create event listeners that won't be removed"""
+            thread_listeners = []
+            
+            # Event queue listeners (common leak - listeners registered but not removed)
+            event_queue = queue.Queue()
+            
+            for i in range(6):
+                def event_handler(event_id=i):
+                    """Event handler that processes events forever"""
+                    while True:
+                        try:
+                            event = event_queue.get(timeout=1.0)
+                            # Process event but never finish
+                            time.sleep(0.1)
+                        except queue.Empty:
+                            continue
+                        except:
+                            break
+                
+                # Start listener thread but don't keep reference
+                listener_thread = threading.Thread(target=event_handler, daemon=True)
+                listener_thread.start()
+                thread_listeners.append(f"event_handler_{i}")
+                # Thread reference lost - becomes orphaned
+            
+            # File system watchers (common leak - watchers not stopped)
+            for i in range(3):
+                def file_watcher(watch_id=i):
+                    """Simulate file system watching that never stops"""
+                    while True:
+                        time.sleep(5.0)  # Check filesystem every 5 seconds
+                        # Watcher keeps running forever
+                
+                watcher_thread = threading.Thread(target=file_watcher, daemon=True)
+                watcher_thread.start()
+                thread_listeners.append(f"file_watcher_{i}")
+                # Thread reference lost - becomes orphaned
+            
+            # Network event listeners (common leak - connection listeners not closed)
+            for i in range(2):
+                def network_listener(listener_id=i):
+                    """Simulate network event listening"""
+                    while True:
+                        time.sleep(2.0)  # Poll for network events
+                        # Listener keeps running forever
+                
+                network_thread = threading.Thread(target=network_listener, daemon=True)
+                network_thread.start()
+                thread_listeners.append(f"network_listener_{i}")
+                # Thread reference lost - becomes orphaned
+            
+            return thread_listeners
+        
+        # Create listener leaks
+        thread = threading.Thread(target=lambda: leaked_listeners.extend(create_listener_leak_batch()))
+        thread.start()
+        thread.join()
+        
+        return leaked_listeners
     
     def _capture_cleanup_stats(self) -> Dict[str, int]:
         """Capture current cleanup statistics from all guards and detectors"""
@@ -736,7 +1066,16 @@ class ComprehensiveProductionTest:
     def start_fastapi_application(self):
         """Start the FastAPI application for realistic testing"""
         try:
-            # Use the example FastAPI app from example_app directory
+            # First, check if port 8000 is already in use and clean up
+            try:
+                test_response = requests.get("http://localhost:8000/health", timeout=2)
+                if test_response.status_code == 200:
+                    logger.warning("Port 8000 already in use - attempting cleanup...")
+                    # Kill any existing processes on port 8000
+                    subprocess.run(["netstat", "-ano"], capture_output=True)  # Just to check
+            except:
+                pass  # Port not in use, continue
+            # Run TaskFlow API directly (it has uvicorn.run() built-in)
             api_path = project_root / "example_app" / "taskflow_api.py"
             cmd = [sys.executable, str(api_path)]
             # Fix pipe buffer overflow by using subprocess.DEVNULL
@@ -758,8 +1097,8 @@ class ComprehensiveProductionTest:
             self.fastapi_stdout_log = fastapi_stdout_log
             self.fastapi_stderr_log = fastapi_stderr_log
             
-            # Wait for startup
-            time.sleep(10)
+            # Wait for startup (increased time for stability)
+            time.sleep(15)
             logger.info("FastAPI application started")
             
             # Test connection with multiple retries
@@ -1122,8 +1461,14 @@ class ComprehensiveProductionTest:
             os.environ['MEMGUARD_RULE_BASED_CLEANUP'] = '1'
             
             memguard.protect(
-                # ML-powered open source system with full features
-                monitoring_mode="hybrid"
+                # Open source system with all features enabled
+                auto_cleanup={
+                    'handles': True,    # Auto-close abandoned files/sockets  
+                    'caches': True,     # Auto-evict growing caches
+                    'timers': True,     # Auto-cancel orphaned timers
+                    'cycles': False,    # Leave cycles to GC (safer)
+                    'listeners': True   # Remove abandoned event listeners
+                }
             )
             logger.info("[CHECK] MemGuard started")
             

@@ -50,16 +50,20 @@ try:
     import memguard
     # Using pure engine defaults for authentic production testing
     memguard.protect(
-        # No overrides - using engine defaults:
-        # threshold_mb=50, poll_interval_s=10.0, sample_rate=0.05
+        # Open source defaults - all features available:
+        # threshold_mb=10, poll_interval_s=1.0, sample_rate=0.01
         # patterns=('handles', 'caches', 'timers', 'cycles', 'listeners')
-        # All pattern tuning uses engine defaults
-        license_key='MEMGUARD-PRO-001-GLOBAL'  # Pro license for auto-cleanup
+        # Auto-cleanup available with pattern configuration
+        auto_cleanup={
+            'handles': True,    # Auto-close abandoned files/sockets
+            'caches': True,     # Auto-evict growing caches
+            'timers': True,     # Auto-cancel orphaned timers
+        }
     )
-    print("✅ MemGuard Pro monitoring ENABLED with FULL FEATURES!")
-    print("🛡️  Mode: HYBRID | Threshold: 50MB | Polling: 10s | Sampling: 5%")
-    print("🧹 Auto-cleanup: ALL PATTERNS ENABLED (handles, timers, caches, cycles, listeners)")
-    print("📊 Telemetry: ENABLED for comprehensive metrics collection")
+    print("✅ MemGuard open source monitoring ENABLED with FULL FEATURES!")
+    print("🛡️  Mode: Default | Threshold: 10MB | Polling: 1s | Sampling: 1%")
+    print("🧹 Auto-cleanup: ENABLED for handles, caches, timers")
+    print("📊 Telemetry: Local metrics collection only")
     
 except ImportError:
     print("❌ MemGuard not available - install MemGuard to enable monitoring")

@@ -637,7 +637,7 @@ def get_tracked_files_info() -> Dict[str, Any]:
     }
 
 
-def _is_file_safe_to_close(tracked_file) -> bool:
+def _is_file_safe_to_close(tracked_file, max_age_s: float = 300.0) -> bool:
     """
     RULE-BASED CLEANUP SYSTEM: Production-ready file abandonment detection.
     
@@ -656,8 +656,8 @@ def _is_file_safe_to_close(tracked_file) -> bool:
         idle_seconds = tracked_file.idle_seconds
         access_count = tracked_file.access_count
         
-        # Get cleanup threshold from environment or config (default 300s = 5min)
-        cleanup_threshold = float(os.getenv('MEMGUARD_CLEANUP_THRESHOLD_S', '300'))
+        # Use passed max_age_s parameter, with environment override if set
+        cleanup_threshold = float(os.getenv('MEMGUARD_CLEANUP_THRESHOLD_S', str(max_age_s)))
         
         # User-customizable patterns via environment variables
         custom_temp_patterns = os.getenv('MEMGUARD_CUSTOM_TEMP_PATTERNS', '').split(',')
@@ -959,7 +959,7 @@ def force_cleanup_files(max_age_s: float = 300.0) -> int:
         for tracked in list(_tracked_files.values()):
             if not tracked.is_closed and tracked.age_seconds > max_age_s:
                 # Rule-based cleanup analysis check
-                should_close = _is_file_safe_to_close(tracked)
+                should_close = _is_file_safe_to_close(tracked, max_age_s)
                 
                 # DEBUG: Log cleanup decision for testing
                 if os.getenv('MEMGUARD_TESTING_OVERRIDE') == '1':
