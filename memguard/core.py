@@ -1,5 +1,6 @@
 #=============================================================================
 # File        : memguard/core.py
+# 💖 Support: https://www.paypal.com/donate/?business=Y9ULBRWNG9EVL&no_recurring=0&item_name=World%27s+first+ML-powered+AutoFix+and+Detect+for+memory+leaks+in+runtime+Python+apps.+Support+revolutionary+open+source+AI+tech%21&currency_code=CAD
 # Project     : MemGuard v1.0
 # Component   : Core Orchestrator - Main Memory Leak Prevention Engine
 # Description : Primary orchestration layer for all memory leak detection and prevention

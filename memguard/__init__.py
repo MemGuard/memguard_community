@@ -8,6 +8,8 @@
 #               • File, socket, cache, timer, and event leak detection
 #               • Real-time performance monitoring and reporting
 #               • Production-ready with enterprise features
+#
+# 💖 Support MemGuard: https://www.paypal.com/donate/?business=Y9ULBRWNG9EVL&no_recurring=0&item_name=World%27s+first+ML-powered+AutoFix+and+Detect+for+memory+leaks+in+runtime+Python+apps.+Support+revolutionary+open+source+AI+tech%21&currency_code=CAD
 # Author      : Kyle Clouthier
 # Version     : 1.0.0
 # Technology  : Python 3.8+, Threading, AsyncIO, Machine Learning

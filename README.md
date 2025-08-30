@@ -6,6 +6,7 @@
 [![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)](https://github.com/MemGuard/memguard_community)
 [![Performance](https://img.shields.io/badge/overhead-%3C3%25-brightgreen)](https://github.com/MemGuard/memguard_community)
 [![Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue)](https://opensource.org)
+[![Donate](https://img.shields.io/badge/💖-Support%20Project-ff69b4)](https://www.paypal.com/donate/?business=Y9ULBRWNG9EVL&no_recurring=0&item_name=World%27s+first+ML-powered+AutoFix+and+Detect+for+memory+leaks+in+runtime+Python+apps.+Support+revolutionary+open+source+AI+tech%21&currency_code=CAD)
 
 **Production-grade memory leak detection and automatic cleanup system with AI-powered resource management.**
 
