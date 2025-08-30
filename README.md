@@ -45,14 +45,22 @@ MemGuard is an enterprise-ready, zero-cost alternative to commercial memory moni
 ## 📦 **Installation**
 
 ```bash
-# Install from PyPI (recommended)
-pip install memguard
-
-# Or install from source
+# Install from source
 git clone https://github.com/MemGuard/memguard_community.git
 cd memguard_community
 pip install -e .
+
+# Install with optional dependencies
+pip install -e ".[dev,web,async]"
 ```
+
+### Installation Options
+
+- **Basic**: `pip install -e .` - Core monitoring features
+- **Web**: `pip install -e ".[web]"` - Adds FastAPI/Flask support  
+- **Async**: `pip install -e ".[async]"` - Async monitoring support
+- **Development**: `pip install -e ".[dev]"` - Testing and linting tools
+- **Complete**: `pip install -e ".[dev,web,async]"` - All features
 
 **Requirements:** Python 3.8+ • Cross-platform (Windows, Linux, macOS)
 

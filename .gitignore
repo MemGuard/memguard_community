@@ -201,3 +201,7 @@ performance_data/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Project specific files to exclude
+Commands.txt
+MemGuard_ Project Guide.md
